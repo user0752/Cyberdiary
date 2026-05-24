@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/28193895/README.md)
 # CyberNote 赛博笔记
 
 > **笔记 + LLM 第二大脑** —— 基于 Karpathy Wiki 编译范式的个人知识管理系统
@@ -15,15 +14,17 @@
 
 
 
-## V1.0总览：![image-20260524222727893](C:\Users\86175\AppData\Roaming\Typora\typora-user-images\image-20260524222727893.png)
+## V1.0 总览
 
-![image-20260524223038460](C:\Users\86175\AppData\Roaming\Typora\typora-user-images\image-20260524223038460.png)
+![Memo Flow](docs/images/image-20260524222727893.png)
 
-![image-20260524223102805](C:\Users\86175\AppData\Roaming\Typora\typora-user-images\image-20260524223102805.png)
+![Compile Engine](docs/images/image-20260524223038460.png)
 
-![image-20260524223127422](C:\Users\86175\AppData\Roaming\Typora\typora-user-images\image-20260524223127422.png)
+![Wiki Hub](docs/images/image-20260524223102805.png)
 
-![image-20260524223146180](C:\Users\86175\AppData\Roaming\Typora\typora-user-images\image-20260524223146180.png)
+![Chat](docs/images/image-20260524223127422.png)
+
+![Settings](docs/images/image-20260524223146180.png)
 
 
 
