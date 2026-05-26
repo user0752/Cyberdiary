@@ -90,3 +90,12 @@ async def update_wiki(slug: str, data: WikiUpdate, db: AsyncSession = Depends(ge
     if not page:
         raise HTTPException(status_code=404, detail="Wiki page not found")
     return ApiResponse(data=WikiPageResponse.model_validate(page))
+
+
+@router.delete("/{slug}", response_model=ApiResponse)
+async def delete_wiki(slug: str, db: AsyncSession = Depends(get_db)):
+    """Delete a wiki page and all associated links."""
+    deleted = await wiki_service.delete_wiki_page(db, slug)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Wiki page not found")
+    return ApiResponse(code=0, message="ok", data=None)

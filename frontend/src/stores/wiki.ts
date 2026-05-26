@@ -75,6 +75,17 @@ export const useWikiStore = defineStore('wiki', () => {
     return updated
   }
 
+  async function deletePage(slug: string) {
+    await wikiApi.deleteWikiPage(slug)
+    // Remove from list if present
+    pages.value = pages.value.filter((p) => p.slug !== slug)
+    // Clear current page if it was the deleted one
+    if (currentPage.value?.slug === slug) {
+      currentPage.value = null
+      backlinks.value = []
+    }
+  }
+
   async function doSearch(q: string) {
     searchQuery.value = q
     if (!q.trim()) {
@@ -134,7 +145,7 @@ export const useWikiStore = defineStore('wiki', () => {
     graphData,
     backlinks,
     compileJobs, compiling, compileProgress,
-    loadPages, loadPage, updatePage, doSearch, loadGraph,
+    loadPages, loadPage, updatePage, deletePage, doSearch, loadGraph,
     loadCompileJobs, triggerCompile, parseTags,
   }
 })

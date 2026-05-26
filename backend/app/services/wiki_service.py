@@ -1,9 +1,10 @@
 """Wiki business logic - CRUD, search, graph, backlinks."""
 
 import json
+import os
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func, text
+from sqlalchemy import select, delete as sql_delete, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.wiki import WikiPage, WikiLink
@@ -152,6 +153,30 @@ async def get_wiki_summaries(db: AsyncSession, limit: int = 50) -> list[WikiPage
     return list(result.scalars().all())
 
 
+async def delete_wiki_page(db: AsyncSession, slug: str) -> bool:
+    """Delete a wiki page and all associated links. Returns True if deleted."""
+    page = await get_wiki_page(db, slug)
+    if not page:
+        return False
+
+    # Delete associated local file if exists
+    if page.file_path and os.path.isfile(page.file_path):
+        try:
+            os.remove(page.file_path)
+        except OSError:
+            pass  # best-effort cleanup
+
+    # Delete all links (outgoing and incoming)
+    await db.execute(sql_delete(WikiLink).where(
+        (WikiLink.from_slug == slug) | (WikiLink.to_slug == slug)
+    ))
+
+    # Delete the page itself
+    await db.delete(page)
+    await db.flush()
+    return True
+
+
 async def save_wiki_page(
     db: AsyncSession,
     slug: str,
@@ -191,7 +216,6 @@ async def save_wiki_page(
     await db.flush()
 
     # Update outgoing links: delete old, insert new
-    from sqlalchemy import delete as sql_delete
     await db.execute(sql_delete(WikiLink).where(WikiLink.from_slug == slug))
 
     for target_slug in wiki_links:

@@ -16,6 +16,9 @@ const editSummary = ref('')
 const editTags = ref('')
 const editType = ref('')
 
+const showDeleteConfirm = ref(false)
+const deleting = ref(false)
+
 const typeLabels: Record<string, string> = {
   concept: '概念',
   entity: '实体',
@@ -72,6 +75,20 @@ async function saveEdit() {
 
 function cancelEdit() {
   editing.value = false
+}
+
+async function handleDelete() {
+  if (!store.currentPage) return
+  deleting.value = true
+  try {
+    await store.deletePage(store.currentPage.slug)
+    router.push('/wiki')
+  } catch (e) {
+    alert('删除失败，请重试')
+  } finally {
+    deleting.value = false
+    showDeleteConfirm.value = false
+  }
 }
 
 function formatDate(dateStr: string) {
@@ -186,7 +203,10 @@ watch(() => route.params.slug, loadPage)
             </span>
           </div>
 
-          <button class="btn btn-ghost edit-btn" @click="startEdit">✏️ 编辑</button>
+          <div class="header-actions">
+            <button class="btn btn-ghost edit-btn" @click="startEdit">✏️ 编辑</button>
+            <button class="btn btn-ghost delete-btn" @click="showDeleteConfirm = true">🗑️ 删除</button>
+          </div>
         </div>
 
         <!-- Content -->
@@ -228,6 +248,25 @@ watch(() => route.params.slug, loadPage)
         </div>
       </div>
     </div>
+
+    <!-- Delete Confirmation Modal -->
+    <Teleport to="body">
+      <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
+        <div class="modal-box">
+          <h3 class="modal-title">确认删除</h3>
+          <p class="modal-text">
+            确定要删除「<strong>{{ store.currentPage?.title }}</strong>」吗？<br />
+            此操作不可撤销，关联的链接也会被清除。
+          </p>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" :disabled="deleting" @click="showDeleteConfirm = false">取消</button>
+            <button class="btn btn-danger" :disabled="deleting" @click="handleDelete">
+              {{ deleting ? '删除中...' : '确认删除' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -393,6 +432,82 @@ watch(() => route.params.slug, loadPage)
 .edit-btn {
   margin-top: 4px;
   font-size: 0.85rem;
+}
+
+.delete-btn {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: #ef4444;
+}
+
+.delete-btn:hover {
+  background: #ef444420;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-box {
+  background: var(--bg-secondary, #fff);
+  border-radius: var(--radius-md, 8px);
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.modal-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
+.modal-text {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Content */

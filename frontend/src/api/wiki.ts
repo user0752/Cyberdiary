@@ -90,6 +90,10 @@ export async function updateWikiPage(
   return data.data
 }
 
+export async function deleteWikiPage(slug: string): Promise<void> {
+  await api.delete(`/wiki/${slug}`)
+}
+
 export async function searchWiki(q: string, limit = 20): Promise<WikiPage[]> {
   const { data } = await api.get<ApiRes<WikiPage[]>>('/wiki/search', { params: { q, limit } })
   return data.data
