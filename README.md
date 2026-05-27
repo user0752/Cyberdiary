@@ -1,6 +1,10 @@
 # CyberNote 赛博笔记
 
 > **笔记 + LLM 第二大脑** —— 基于 Karpathy Wiki 编译范式的个人知识管理系统
+>
+> 致力于打造一个个人知识行为信息库，专属于个人的数据层。
+>
+> 基于数据层的智能体正在火热开发中，非常欢迎各位开发者测试、提出问题、改进。
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.0-blue" alt="version">
