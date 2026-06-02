@@ -14,6 +14,49 @@ const editorTags = ref('')
 const editorType = ref('note')
 const searchInput = ref('')
 const showSearch = ref(false)
+const fileInputRef = ref<HTMLInputElement>()
+
+// 处理文件导入
+async function handleFileImport(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  // 只允许 .md 文件
+  if (!file.name.toLowerCase().endsWith('.md')) {
+    alert('请选择 Markdown 文件 (.md)')
+    return
+  }
+
+  try {
+    const text = await file.text()
+    editorContent.value = text
+    
+    // 自动填充标签，使用文件名（不含扩展名）作为第一个标签
+    const fileName = file.name.replace(/\.md$/i, '')
+    if (fileName && !editorTags.value.includes(fileName)) {
+      const existingTags = editorTags.value ? editorTags.value.split(',').map(t => t.trim()).filter(Boolean) : []
+      if (!existingTags.includes(fileName)) {
+        existingTags.unshift(fileName)
+        editorTags.value = existingTags.join(', ')
+      }
+    }
+    
+    // 自动设置类型为 reference（参考资料）
+    editorType.value = 'reference'
+  } catch (error) {
+    console.error('读取文件失败:', error)
+    alert('文件读取失败，请重试')
+  } finally {
+    // 清空 input，允许重复选择同一文件
+    input.value = ''
+  }
+}
+
+// 触发文件选择
+function triggerFileSelect() {
+  fileInputRef.value?.click()
+}
 
 const typeLabels: Record<string, string> = {
   note: 'NOTE',
@@ -273,9 +316,22 @@ onMounted(() => {
         <div class="editor-drawer">
           <div class="editor-header">
             <h2>{{ editingMemo ? '[EDIT]' : '[NEW]' }} MEMO</h2>
-            <button class="btn-icon close-btn" @click="showEditor = false">
-              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/></svg>
-            </button>
+            <div class="editor-header-actions">
+              <button class="btn btn-ghost import-btn" @click="triggerFileSelect">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="import-icon"><path d="M10 2a.75.75 0 01.75.75v9.638l3.2-3.2a.75.75 0 111.06 1.061l-4.5 4.5a.749.749 0 01-1.06 0l-4.5-4.5a.75.75 0 011.06-1.06l3.2 3.199V2.75A.75.75 0 0110 2zM3 13.75a.75.75 0 01.75.75v2.5c0 .69.56 1.25 1.25 1.25h10c.69 0 1.25-.56 1.25-1.25v-2.5a.75.75 0 011.5 0v2.5A2.75 2.75 0 0115 20H5A2.75 2.75 0 012.25 17.25v-2.5A.75.75 0 013 13.75z"/></svg>
+                IMPORT .MD
+              </button>
+              <button class="btn-icon close-btn" @click="showEditor = false">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/></svg>
+              </button>
+            </div>
+            <input
+              ref="fileInputRef"
+              type="file"
+              accept=".md,text/markdown"
+              @change="handleFileImport"
+              class="hidden-file-input"
+            />
           </div>
 
           <div class="editor-meta">
@@ -790,6 +846,8 @@ onMounted(() => {
   align-items: center;
   padding: 20px 24px;
   border-bottom: 1px solid var(--border-dim);
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .editor-header h2 {
@@ -798,6 +856,26 @@ onMounted(() => {
   font-weight: 600;
   color: var(--accent);
   letter-spacing: 0.1em;
+}
+
+.editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.import-btn {
+  padding: 8px 16px;
+  font-size: 0.75rem;
+}
+
+.import-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .close-btn {
