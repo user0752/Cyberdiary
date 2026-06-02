@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 export interface ModelConfig {
   id: string
-  provider: 'deepseek' | 'qwen' | 'ollama'
+  provider: 'deepseek' | 'qwen' | 'ollama' | 'mimo'
   model_name: string
   display_name: string
   api_key_enc: string

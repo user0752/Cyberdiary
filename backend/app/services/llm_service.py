@@ -50,6 +50,9 @@ def build_litellm_kwargs(model_config: dict) -> dict:
     elif provider == "ollama":
         kwargs["model"] = f"ollama/{model_name}" if not model_name.startswith("ollama/") else model_name
         kwargs["api_base"] = endpoint or settings.ollama_base_url
+    elif provider == "mimo":
+        kwargs["model"] = f"openai/{model_name}"
+        kwargs["api_base"] = endpoint or "https://api.xiaomimimo.com/v1"
 
     return kwargs
 

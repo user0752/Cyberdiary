@@ -19,7 +19,7 @@ router = APIRouter(prefix="/models", tags=["models"])
 
 
 class ModelCreate(BaseModel):
-    provider: str = Field(..., pattern=r"^(deepseek|qwen|ollama)$")
+    provider: str = Field(..., pattern=r"^(deepseek|qwen|ollama|mimo)$")
     model_name: str = Field(..., min_length=1)
     display_name: str = ""
     api_key: str = ""

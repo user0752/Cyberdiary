@@ -35,6 +35,7 @@ const providerOptions = [
   { value: 'deepseek', label: 'DeepSeek', defaultEndpoint: 'https://api.deepseek.com', hint: 'deepseek-chat / deepseek-reasoner' },
   { value: 'qwen', label: 'Alibaba DashScope', defaultEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', hint: 'qwen-max / deepseek-v4-pro / glm-4 / kimi-latest' },
   { value: 'ollama', label: 'Ollama (Local)', defaultEndpoint: 'http://localhost:11434', hint: 'llama3 / qwen2.5 / mistral ...' },
+  { value: 'mimo', label: 'Xiaomi MIMO', defaultEndpoint: 'https://api.xiaomimimo.com/v1', hint: 'mimo-v2.5-pro / mimo-v2-pro / mimo-v2.5 / mimo-v2-omni / mimo-v2-flash' },
 ]
 
 const selectedProvider = computed(() => providerOptions.find(p => p.value === form.value.provider))
@@ -42,6 +43,7 @@ const providerColors: Record<string, string> = {
   deepseek: 'var(--neon-cyan)',
   qwen: 'var(--neon-yellow)',
   ollama: 'var(--neon-green)',
+  mimo: 'var(--neon-orange)',
 }
 
 async function loadModels() {
@@ -215,7 +217,7 @@ onMounted(loadModels)
               <td class="model-name">{{ m.display_name || m.model_name }}</td>
               <td>
                 <span class="provider-badge" :style="{ borderColor: providerColors[m.provider], color: providerColors[m.provider] }">
-                  {{ { deepseek: 'DeepSeek', qwen: 'DashScope', ollama: 'Ollama' }[m.provider] || m.provider }}
+                  {{ { deepseek: 'DeepSeek', qwen: 'DashScope', ollama: 'Ollama', mimo: 'Xiaomi MIMO' }[m.provider] || m.provider }}
                 </span>
               </td>
               <td>
