@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import { useSettingsStore } from './stores/settings'
+import { onMounted } from 'vue'
 
 const route = useRoute()
+const settingsStore = useSettingsStore()
 
 const navItems = [
   { path: '/memos', label: 'MEMO', icon: '01', sub: '笔记流' },
@@ -9,10 +12,14 @@ const navItems = [
   { path: '/chat', label: 'CHAT', icon: '03', sub: 'AI对话' },
   { path: '/settings', label: 'SYS', icon: '04', sub: '系统设置' },
 ]
+
+onMounted(() => {
+  settingsStore.init()
+})
 </script>
 
 <template>
-  <div class="app-layout scanlines">
+  <div class="app-layout scanlines noise">
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-top">
@@ -75,6 +82,7 @@ const navItems = [
   height: 100vh;
   width: 100vw;
   background: var(--bg-void);
+  transition: background-color var(--transition-smooth);
 }
 
 .sidebar {

@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+
+export type Theme = 'cyberpunk' | 'dark' | 'light' | 'synthwave'
 
 export interface ModelConfig {
   id: string
@@ -15,7 +17,29 @@ export const useSettingsStore = defineStore('settings', () => {
   const models = ref<ModelConfig[]>([])
   const defaultChatModel = ref('')
   const defaultCompileModel = ref('')
-  const theme = ref<'dark' | 'light'>('dark')
+  const theme = ref<Theme>('cyberpunk')
+
+  // Load theme from localStorage on initialization
+  function loadTheme() {
+    const saved = localStorage.getItem('cybernote-theme')
+    if (saved && ['cyberpunk', 'dark', 'light', 'synthwave'].includes(saved)) {
+      theme.value = saved as Theme
+    }
+    applyTheme(theme.value)
+  }
+
+  // Save theme to localStorage and apply
+  function setTheme(newTheme: Theme) {
+    theme.value = newTheme
+    localStorage.setItem('cybernote-theme', newTheme)
+    applyTheme(newTheme)
+  }
+
+  // Apply theme to DOM
+  function applyTheme(themeName: Theme) {
+    const root = document.documentElement
+    root.setAttribute('data-theme', themeName)
+  }
 
   async function fetchModels() {
     try {
@@ -59,6 +83,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   /** Load models + defaults, auto-select first enabled model if no default set */
   async function init() {
+    loadTheme()
     await Promise.all([fetchModels(), fetchDefaults()])
     // Auto-select first enabled model as fallback
     const firstEnabled = models.value.find((m) => m.enabled)
@@ -68,5 +93,15 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  return { models, defaultChatModel, defaultCompileModel, theme, fetchModels, fetchDefaults, saveDefaults, init }
+  return { 
+    models, 
+    defaultChatModel, 
+    defaultCompileModel, 
+    theme, 
+    setTheme,
+    fetchModels, 
+    fetchDefaults, 
+    saveDefaults, 
+    init 
+  }
 })

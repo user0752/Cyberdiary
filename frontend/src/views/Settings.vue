@@ -46,6 +46,37 @@ const providerColors: Record<string, string> = {
   mimo: 'var(--neon-orange)',
 }
 
+const themes = [
+  {
+    id: 'cyberpunk',
+    name: 'Cyberpunk',
+    desc: 'Neon nights, glitchy vibes',
+    preview: 'linear-gradient(135deg, #030308 0%, #0f0f1a 100%)'
+  },
+  {
+    id: 'dark',
+    name: 'Dark',
+    desc: 'Clean minimal dark theme',
+    preview: 'linear-gradient(135deg, #05050a 0%, #1a1a20 100%)'
+  },
+  {
+    id: 'light',
+    name: 'Light',
+    desc: 'Bright and clean UI',
+    preview: 'linear-gradient(135deg, #fafafa 0%, #e8e8f0 100%)'
+  },
+  {
+    id: 'synthwave',
+    name: 'Synthwave',
+    desc: '80s retrofuturistic style',
+    preview: 'linear-gradient(135deg, #050110 0%, #1c1030 100%)'
+  }
+]
+
+function setTheme(themeId: string) {
+  settingsStore.setTheme(themeId as any)
+}
+
 async function loadModels() {
   loading.value = true
   try {
@@ -284,6 +315,30 @@ onMounted(loadModels)
 
         <div v-if="enabledModels.length === 0" class="empty-hint">
           Add and enable at least one model above first.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="section-icon">
+            <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7zm1-11h-2v3H8v2h3v3h2v-3h3v-2h-3V8z"/>
+          </svg>
+          THEME CONFIG
+        </h2>
+        <p class="section-desc">Choose your preferred visual theme.</p>
+
+        <div class="theme-grid">
+          <div
+            v-for="theme in themes"
+            :key="theme.id"
+            class="theme-card"
+            :class="{ active: settingsStore.theme === theme.id }"
+            @click="setTheme(theme.id)"
+          >
+            <div class="theme-preview" :style="{ background: theme.preview }"></div>
+            <span class="theme-name">{{ theme.name }}</span>
+            <span class="theme-desc">{{ theme.desc }}</span>
+          </div>
         </div>
       </section>
     </div>
@@ -733,5 +788,60 @@ select.field {
   gap: 12px;
   padding: 16px 24px;
   border-top: 1px solid var(--border-dim);
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 2px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-smooth);
+}
+
+.theme-card:hover {
+  border-color: var(--border);
+  transform: translateY(-2px);
+}
+
+.theme-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-ghost);
+}
+
+.theme-preview {
+  width: 100%;
+  height: 80px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.theme-name {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.05em;
+}
+
+.theme-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 600px) {
+  .theme-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
