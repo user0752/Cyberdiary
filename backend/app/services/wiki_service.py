@@ -4,9 +4,10 @@ import json
 import os
 from datetime import datetime, timezone
 
-from sqlalchemy import select, delete as sql_delete, func, text
+from sqlalchemy import select, delete as sql_delete, func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.memo import Memo
 from app.models.wiki import WikiPage, WikiLink
 
 
@@ -58,7 +59,9 @@ async def update_wiki_page(
     tags: list[str] | None = None,
     wiki_type: str | None = None,
 ) -> WikiPage | None:
-    """Update a wiki page. Returns None if not found."""
+    """Update a wiki page. Returns None if not found.
+    When content changes, re-extracts [[wiki links]] and syncs wiki_links table.
+    """
     page = await get_wiki_page(db, slug)
     if not page:
         return None
@@ -67,6 +70,15 @@ async def update_wiki_page(
         page.title = title
     if content is not None:
         page.content = content
+        # Re-extract wiki links from updated content, avoiding circular import
+        from app.services.compile_service import _extract_wiki_links
+        wiki_links = _extract_wiki_links(content)
+        # Sync wiki_links table (same logic as save_wiki_page)
+        await db.execute(sql_delete(WikiLink).where(WikiLink.from_slug == slug))
+        for target_slug in wiki_links:
+            if target_slug != slug:
+                link = WikiLink(from_slug=slug, to_slug=target_slug)
+                db.add(link)
     if summary is not None:
         page.summary = summary
     if tags is not None:
@@ -158,6 +170,19 @@ async def delete_wiki_page(db: AsyncSession, slug: str) -> bool:
     page = await get_wiki_page(db, slug)
     if not page:
         return False
+
+    # Reset compiled flag on source memos so they can be recompiled
+    if page.source_memo_ids:
+        try:
+            memo_ids = json.loads(page.source_memo_ids)
+            if memo_ids:
+                await db.execute(
+                    update(Memo)
+                    .where(Memo.id.in_(memo_ids))
+                    .values(compiled=False)
+                )
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     # Delete associated local file if exists
     if page.file_path and os.path.isfile(page.file_path):

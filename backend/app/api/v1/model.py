@@ -148,6 +148,8 @@ async def update_model_defaults(data: ModelDefaults, db: AsyncSession = Depends(
     """Set default model IDs for chat and compile."""
     from datetime import datetime, timezone
     for key, value in data.model_dump().items():
+        if not value:  # Skip empty values to avoid overwriting existing defaults
+            continue
         result = await db.execute(select(Setting).where(Setting.key == key))
         row = result.scalar_one_or_none()
         if row:
@@ -155,5 +157,5 @@ async def update_model_defaults(data: ModelDefaults, db: AsyncSession = Depends(
             row.updated_at = datetime.now(timezone.utc)
         else:
             db.add(Setting(key=key, value=value))
-    await db.flush()
+    await db.commit()
     return ApiResponse(message="Defaults updated")

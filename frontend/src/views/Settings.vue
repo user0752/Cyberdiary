@@ -88,8 +88,13 @@ async function loadModels() {
     defaultCompileModel.value = settingsStore.defaultCompileModel
     const firstEnabled = models.value.find(m => m.enabled)
     if (firstEnabled) {
-      if (!defaultChatModel.value) defaultChatModel.value = firstEnabled.id
-      if (!defaultCompileModel.value) defaultCompileModel.value = firstEnabled.id
+      // Only auto-fill if saved default is empty OR the saved model no longer exists
+      if (!defaultChatModel.value || !models.value.some(m => m.id === defaultChatModel.value)) {
+        defaultChatModel.value = firstEnabled.id
+      }
+      if (!defaultCompileModel.value || !models.value.some(m => m.id === defaultCompileModel.value)) {
+        defaultCompileModel.value = firstEnabled.id
+      }
     }
   } catch (e) {
     console.error(e)
@@ -100,7 +105,16 @@ async function loadModels() {
 const enabledModels = computed(() => models.value.filter(m => m.enabled))
 
 async function saveDefaults() {
-  await settingsStore.saveDefaults(defaultChatModel.value, defaultCompileModel.value)
+  if (!(await settingsStore.saveDefaults(defaultChatModel.value, defaultCompileModel.value))) {
+    // Save failed — revert to server state and re-apply auto-fill
+    defaultChatModel.value = settingsStore.defaultChatModel
+    defaultCompileModel.value = settingsStore.defaultCompileModel
+    const firstEnabled = models.value.find(m => m.enabled)
+    if (firstEnabled) {
+      if (!defaultChatModel.value) defaultChatModel.value = firstEnabled.id
+      if (!defaultCompileModel.value) defaultCompileModel.value = firstEnabled.id
+    }
+  }
 }
 
 function openAdd() {

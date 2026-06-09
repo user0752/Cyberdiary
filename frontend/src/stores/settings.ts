@@ -64,9 +64,9 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function saveDefaults(chatId: string, compileId: string) {
+  async function saveDefaults(chatId: string, compileId: string): Promise<boolean> {
     try {
-      await fetch('/api/v1/models/defaults', {
+      const res = await fetch('/api/v1/models/defaults', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -74,10 +74,17 @@ export const useSettingsStore = defineStore('settings', () => {
           default_compile_model: compileId,
         }),
       })
+      const data = await res.json()
+      if (!res.ok || data.code !== 0) {
+        console.error('Failed to save defaults:', res.status, data)
+        return false
+      }
       defaultChatModel.value = chatId
       defaultCompileModel.value = compileId
+      return true
     } catch (e) {
       console.error('Failed to save defaults:', e)
+      return false
     }
   }
 

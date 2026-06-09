@@ -95,10 +95,19 @@ function formatDate(dateStr: string) {
 }
 
 async function handleCompile() {
-  const modelId = settingsStore.defaultCompileModel
-  if (!modelId) {
-    alert('请先在设置中配置编译模型')
-    return
+  let modelId = settingsStore.defaultCompileModel
+  const modelExists = settingsStore.models.some(m => m.id === modelId && m.enabled)
+  if (!modelId || !modelExists) {
+    // Fallback: pick first enabled model
+    const fallback = settingsStore.models.find(m => m.enabled)
+    if (fallback) {
+      modelId = fallback.id
+      settingsStore.defaultCompileModel = fallback.id
+      settingsStore.saveDefaults(settingsStore.defaultChatModel, fallback.id)
+    } else {
+      alert('请先在设置中配置并启用一个编译模型')
+      return
+    }
   }
   await store.triggerCompile(null, modelId)
   await store.loadPages()

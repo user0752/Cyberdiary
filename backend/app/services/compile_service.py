@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session
 from app.models.compile_job import CompileJob
 from app.models.memo import Memo
+from app.models.wiki import WikiLink, WikiPage
 from app.services import llm_service
 from app.services import wiki_service
 
@@ -175,6 +176,22 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
             else:
                 memos = await get_uncompiled_memos(db)
 
+                # Safety: reset orphaned compiled memos (compiled=True but wiki pages deleted)
+                if not memos:
+                    result = await db.execute(
+                        select(Memo).where(Memo.compiled == True, Memo.archived == False)
+                    )
+                    orphaned = list(result.scalars().all())
+                    if orphaned:
+                        progress['message'] = f'Resetting {len(orphaned)} orphaned memos...'
+                        await db.execute(
+                            update(Memo)
+                            .where(Memo.id.in_([m.id for m in orphaned]))
+                            .values(compiled=False, updated_at=datetime.now(timezone.utc))
+                        )
+                        await db.commit()
+                        memos = await get_uncompiled_memos(db)
+
             if not memos:
                 progress.update(status='done', progress=100, message='No uncompiled memos found')
                 job.status = 'done'
@@ -253,6 +270,7 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
             pages = list(seen_slugs.values())
 
             # Save wiki pages
+            new_slugs = []
             for page_data in pages:
                 await wiki_service.save_wiki_page(
                     db,
@@ -265,6 +283,53 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
                     source_memo_ids=page_data['source_memo_ids'],
                     wiki_links=page_data['wiki_links'],
                 )
+                new_slugs.append(page_data['slug'])
+
+            # Tag-based fallback links: pages sharing tags get bidirectional links
+            tag_to_slugs: dict[str, list[str]] = {}
+            for p in pages:
+                for tag in p['tags']:
+                    tag_to_slugs.setdefault(tag, []).append(p['slug'])
+
+            for tag, slugs in tag_to_slugs.items():
+                if len(slugs) < 2:
+                    continue
+                for i in range(len(slugs)):
+                    for j in range(i + 1, len(slugs)):
+                        # Check existence to avoid UniqueConstraint violation
+                        existing = await db.execute(
+                            select(WikiLink).where(
+                                WikiLink.from_slug == slugs[i],
+                                WikiLink.to_slug == slugs[j]
+                            )
+                        )
+                        if not existing.scalar_one_or_none():
+                            db.add(WikiLink(from_slug=slugs[i], to_slug=slugs[j]))
+                            db.add(WikiLink(from_slug=slugs[j], to_slug=slugs[i]))
+
+            # Also link new pages to existing pages that share tags
+            if tag_to_slugs:
+                all_tags = list(tag_to_slugs.keys())
+                for tag in all_tags:
+                    existing_result = await db.execute(
+                        select(WikiPage).where(
+                            WikiPage.tags.like(f'%"{tag}"%'),
+                            WikiPage.slug.notin_(new_slugs),
+                        )
+                    )
+                    existing_pages = list(existing_result.scalars().all())
+                    for new_slug in tag_to_slugs[tag]:
+                        for ext_page in existing_pages:
+                            ext_slug = ext_page.slug
+                            existing = await db.execute(
+                                select(WikiLink).where(
+                                    WikiLink.from_slug == new_slug,
+                                    WikiLink.to_slug == ext_slug,
+                                )
+                            )
+                            if not existing.scalar_one_or_none():
+                                db.add(WikiLink(from_slug=new_slug, to_slug=ext_slug))
+                                db.add(WikiLink(from_slug=ext_slug, to_slug=new_slug))
 
             # Mark memos as compiled
             await _mark_memos_compiled(db, actual_memo_ids)
