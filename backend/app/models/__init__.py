@@ -4,9 +4,11 @@ from app.models.chat import Conversation, Message
 from app.models.compile_job import CompileJob
 from app.models.user import User
 from app.models.settings import Setting
+from app.models.game import GameQuestion, GameSession, GameAnswer
 
 __all__ = [
     "Memo", "WikiPage", "WikiLink",
     "Conversation", "Message",
     "CompileJob", "User", "Setting",
+    "GameQuestion", "GameSession", "GameAnswer",
 ]

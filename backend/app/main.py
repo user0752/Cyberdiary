@@ -70,3 +70,7 @@ app.include_router(compile_router, prefix="/api/v1")
 # Wiki
 from app.api.v1.wiki import router as wiki_router
 app.include_router(wiki_router, prefix="/api/v1")
+
+# Game
+from app.api.v1.game import router as game_router
+app.include_router(game_router, prefix="/api/v1")

@@ -10,7 +10,8 @@ const navItems = [
   { path: '/memos', label: 'MEMO', icon: '01', sub: '笔记流' },
   { path: '/wiki', label: 'WIKI', icon: '02', sub: '知识库' },
   { path: '/chat', label: 'CHAT', icon: '03', sub: 'AI对话' },
-  { path: '/settings', label: 'SYS', icon: '04', sub: '系统设置' },
+  { path: '/game', label: 'GAME', icon: '04', sub: '知识闯关' },
+  { path: '/settings', label: 'SYS', icon: '05', sub: '系统设置' },
 ]
 
 onMounted(() => {
