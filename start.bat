@@ -41,6 +41,24 @@ start "CyberNote Backend" /min cmd /c "venv\Scripts\activate.bat && uvicorn app.
 
 cd ..
 
+:: Wait for backend to be ready (timeout 30s)
+echo [INFO] Waiting for backend to be ready (checking http://localhost:8000)...
+set BACKEND_READY=0
+for /l %%i in (1,1,30) do (
+    timeout /t 1 /nobreak >nul
+    curl -s http://localhost:8000/api/v1/models >nul 2>&1
+    if !errorlevel! equ 0 (
+        set BACKEND_READY=1
+        goto :backend_ready
+    )
+)
+:backend_ready
+if !BACKEND_READY! equ 1 (
+    echo [INFO] Backend service is ready!
+) else (
+    echo [WARN] Backend did not respond within 30s, starting frontend anyway...
+)
+
 echo [INFO] Starting frontend service...
 cd frontend
 

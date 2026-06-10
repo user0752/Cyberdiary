@@ -1,20 +1,36 @@
 """CyberNote FastAPI application entry point."""
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
 from app.core.database import init_db
 
+logger = logging.getLogger(__name__)
+
+# Reference to managed background compile tasks (populated during lifespan)
+_background_tasks: set[asyncio.Task] = set()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown events."""
+    """Startup / shutdown events with graceful task cleanup."""
     await init_db()
+    app.state.background_tasks = _background_tasks
     yield
+    # Graceful shutdown: cancel pending background tasks
+    for task in list(_background_tasks):
+        if not task.done():
+            task.cancel()
+    if _background_tasks:
+        await asyncio.gather(*_background_tasks, return_exceptions=True)
+        _background_tasks.clear()
 
 
 app = FastAPI(
@@ -33,12 +49,24 @@ app.add_middleware(
 )
 
 
-# Global exception handler
+# --- Exception Handlers ---
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Return proper HTTP status codes for intentional HTTPExceptions."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": -1, "message": exc.detail, "data": None},
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all for unexpected errors. Logs full traceback, returns generic message."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"code": -1, "message": f"Internal error: {str(exc)}", "data": None},
+        content={"code": -1, "message": "Internal server error", "data": None},
     )
 
 

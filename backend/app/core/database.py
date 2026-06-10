@@ -12,21 +12,8 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_db():
-    """FastAPI dependency: yield an async database session."""
-    async with async_session() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
-
-
 async def init_db():
-    """Create all tables and FTS5 indexes on startup."""
+    """Create all tables, FTS5 indexes, and performance indexes on startup."""
     # Step 1: Create ORM tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -62,4 +49,14 @@ async def init_db():
                 INSERT INTO memos_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
             END
         """))
+        await conn.commit()
+
+    # Step 3: Create performance indexes
+    async with engine.connect() as conn:
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_memos_compiled_archived ON memos(compiled, archived, created_at)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_wiki_pages_type_tags ON wiki_pages(wiki_type, updated_at)"
+        ))
         await conn.commit()

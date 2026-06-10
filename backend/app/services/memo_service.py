@@ -1,6 +1,7 @@
 """Memo business logic."""
 
 import json
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select, func, text, delete
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.memo import Memo
 from app.schemas.memo import MemoCreate, MemoUpdate
+
+logger = logging.getLogger(__name__)
 
 
 async def create_memo(db: AsyncSession, data: MemoCreate) -> Memo:
@@ -108,8 +111,8 @@ async def search_memos(db: AsyncSession, query: str, limit: int = 20) -> list[Me
         rows = result.fetchall()
         if rows:
             return [Memo(**dict(zip(result.keys(), row))) for row in rows]
-    except Exception:
-        pass  # FTS5 not available or query parse error, fall back to LIKE
+    except Exception as e:
+        logger.warning("Memo FTS5 search failed, falling back to LIKE: %s", e)
 
     # LIKE fallback
     stmt = (

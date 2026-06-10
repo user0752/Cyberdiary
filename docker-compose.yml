@@ -5,7 +5,7 @@ services:
     build: ./backend
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///./data/cybernote.db
-      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env or environment}
       - AUTH_MODE=none
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
     volumes:

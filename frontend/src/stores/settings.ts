@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import client from '../api/client'
 
 export type Theme = 'cyberpunk' | 'dark' | 'light' | 'synthwave'
 
@@ -43,9 +44,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function fetchModels() {
     try {
-      const res = await fetch('/api/v1/models')
-      const data = await res.json()
-      if (data.code === 0) models.value = data.data
+      const res = await client.get('/models')
+      if (res.data.code === 0) models.value = res.data.data
     } catch (e) {
       console.error('Failed to fetch models:', e)
     }
@@ -53,11 +53,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function fetchDefaults() {
     try {
-      const res = await fetch('/api/v1/models/defaults')
-      const data = await res.json()
-      if (data.code === 0 && data.data) {
-        defaultChatModel.value = data.data.default_chat_model || ''
-        defaultCompileModel.value = data.data.default_compile_model || ''
+      const res = await client.get('/models/defaults')
+      if (res.data.code === 0 && res.data.data) {
+        defaultChatModel.value = res.data.data.default_chat_model || ''
+        defaultCompileModel.value = res.data.data.default_compile_model || ''
       }
     } catch (e) {
       console.error('Failed to fetch defaults:', e)
@@ -66,22 +65,16 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function saveDefaults(chatId: string, compileId: string): Promise<boolean> {
     try {
-      const res = await fetch('/api/v1/models/defaults', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          default_chat_model: chatId,
-          default_compile_model: compileId,
-        }),
+      const res = await client.put('/models/defaults', {
+        default_chat_model: chatId,
+        default_compile_model: compileId,
       })
-      const data = await res.json()
-      if (!res.ok || data.code !== 0) {
-        console.error('Failed to save defaults:', res.status, data)
-        return false
+      if (res.data.code === 0) {
+        defaultChatModel.value = chatId
+        defaultCompileModel.value = compileId
+        return true
       }
-      defaultChatModel.value = chatId
-      defaultCompileModel.value = compileId
-      return true
+      return false
     } catch (e) {
       console.error('Failed to save defaults:', e)
       return false

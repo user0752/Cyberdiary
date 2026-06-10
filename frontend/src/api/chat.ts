@@ -1,3 +1,5 @@
+import client from './client'
+
 export interface Conversation {
   id: string
   title: string
@@ -15,19 +17,17 @@ export interface ChatMessage {
 }
 
 export async function fetchConversations(): Promise<Conversation[]> {
-  const res = await fetch('/api/v1/chat/conversations')
-  const data = await res.json()
-  return data.data || []
+  const res = await client.get('/chat/conversations')
+  return res.data.data || []
 }
 
 export async function fetchMessages(convId: string): Promise<ChatMessage[]> {
-  const res = await fetch(`/api/v1/chat/conversations/${convId}/messages`)
-  const data = await res.json()
-  return data.data || []
+  const res = await client.get(`/chat/conversations/${convId}/messages`)
+  return res.data.data || []
 }
 
 export async function deleteConversation(convId: string): Promise<void> {
-  await fetch(`/api/v1/chat/conversations/${convId}`, { method: 'DELETE' })
+  await client.delete(`/chat/conversations/${convId}`)
 }
 
 export async function* chatStream(
@@ -46,7 +46,15 @@ export async function* chatStream(
   })
 
   if (!response.ok) {
-    yield { error: `HTTP ${response.status}` }
+    let detail = `HTTP ${response.status}`
+    try {
+      const body = await response.json()
+      if (body.message) detail = body.message
+    } catch {
+      // response body is not JSON, use status text
+      if (response.statusText) detail = `${response.status} ${response.statusText}`
+    }
+    yield { error: detail }
     return
   }
 

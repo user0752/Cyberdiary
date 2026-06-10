@@ -1,6 +1,7 @@
 """Wiki business logic - CRUD, search, graph, backlinks."""
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -9,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.memo import Memo
 from app.models.wiki import WikiPage, WikiLink
+from app.utils.markdown import extract_wiki_links
+
+logger = logging.getLogger(__name__)
 
 
 async def list_wiki_pages(
@@ -70,9 +74,8 @@ async def update_wiki_page(
         page.title = title
     if content is not None:
         page.content = content
-        # Re-extract wiki links from updated content, avoiding circular import
-        from app.services.compile_service import _extract_wiki_links
-        wiki_links = _extract_wiki_links(content)
+        # Re-extract wiki links from updated content
+        wiki_links = extract_wiki_links(content)
         # Sync wiki_links table (same logic as save_wiki_page)
         await db.execute(sql_delete(WikiLink).where(WikiLink.from_slug == slug))
         for target_slug in wiki_links:
@@ -107,8 +110,8 @@ async def search_wiki(db: AsyncSession, query: str, limit: int = 20) -> list[Wik
         rows = result.fetchall()
         if rows:
             return [WikiPage(**dict(zip(result.keys(), row))) for row in rows]
-    except Exception:
-        pass  # FTS5 not available or parse error
+    except Exception as e:
+        logger.warning("Wiki FTS5 search failed, falling back to LIKE: %s", e)
 
     # LIKE fallback
     stmt = (
@@ -184,13 +187,6 @@ async def delete_wiki_page(db: AsyncSession, slug: str) -> bool:
         except (json.JSONDecodeError, TypeError):
             pass
 
-    # Delete associated local file if exists
-    if page.file_path and os.path.isfile(page.file_path):
-        try:
-            os.remove(page.file_path)
-        except OSError:
-            pass  # best-effort cleanup
-
     # Delete all links (outgoing and incoming)
     await db.execute(sql_delete(WikiLink).where(
         (WikiLink.from_slug == slug) | (WikiLink.to_slug == slug)
@@ -199,6 +195,14 @@ async def delete_wiki_page(db: AsyncSession, slug: str) -> bool:
     # Delete the page itself
     await db.delete(page)
     await db.flush()
+
+    # Delete associated local file AFTER DB operations succeed
+    if page.file_path and os.path.isfile(page.file_path):
+        try:
+            os.remove(page.file_path)
+        except OSError as e:
+            logger.warning("Failed to delete wiki file %s: %s", page.file_path, e)
+
     return True
 
 

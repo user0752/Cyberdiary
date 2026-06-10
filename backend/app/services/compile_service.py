@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,10 +16,12 @@ from app.models.memo import Memo
 from app.models.wiki import WikiLink, WikiPage
 from app.services import llm_service
 from app.services import wiki_service
+from app.utils.markdown import slugify, parse_front_matter, extract_wiki_links
 
 # In-memory progress tracker for SSE streaming
 # Key: job_id, Value: dict with status, progress, message, output
 _compile_progress: dict[str, dict] = {}
+_progress_lock = asyncio.Lock()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -30,45 +31,11 @@ def get_progress(job_id: str) -> dict | None:
     return _compile_progress.get(job_id)
 
 
-def _slugify(text: str) -> str:
-    """Generate a URL-friendly slug from text. Falls back to UUID prefix."""
-    try:
-        from slugify import slugify
-        return slugify(text, allow_unicode=False)
-    except ImportError:
-        pass
-
-    # Simple fallback slugify
-    slug = re.sub(r'[^\w\s-]', '', text.lower().strip())
-    slug = re.sub(r'[-\s]+', '-', slug)
-    return slug[:80] or f"page-{uuid.uuid4().hex[:8]}"
-
-
-def _parse_front_matter(text: str) -> tuple[dict, str]:
-    """Parse YAML front matter from markdown text. Returns (metadata, content)."""
-    text = text.strip()
-    if text.startswith('---'):
-        parts = text.split('---', 2)
-        if len(parts) >= 3:
-            try:
-                metadata = yaml.safe_load(parts[1]) or {}
-                content = parts[2].strip()
-                return metadata, content
-            except yaml.YAMLError:
-                pass
-    return {}, text
-
-
-def _extract_wiki_links(content: str) -> list[str]:
-    """Extract [[Page Name]] links from content and return as slugs."""
-    pattern = r'\[\[([^\]]+)\]\]'
-    matches = re.findall(pattern, content)
-    slugs = []
-    for m in matches:
-        slug = _slugify(m.strip())
-        if slug:
-            slugs.append(slug)
-    return list(set(slugs))
+async def _safe_progress_update(job_id: str, **kwargs):
+    """Thread-safe progress update under asyncio.Lock."""
+    async with _progress_lock:
+        if job_id in _compile_progress:
+            _compile_progress[job_id].update(**kwargs)
 
 
 def _parse_compile_output(output: str, source_memo_ids: list[str]) -> list[dict]:
@@ -84,7 +51,7 @@ def _parse_compile_output(output: str, source_memo_ids: list[str]) -> list[dict]
         if not section:
             continue
 
-        metadata, content = _parse_front_matter(section)
+        metadata, content = parse_front_matter(section)
         if not metadata and not content:
             continue
 
@@ -106,7 +73,7 @@ def _parse_compile_output(output: str, source_memo_ids: list[str]) -> list[dict]
             tags = [t.strip() for t in tags.split(',') if t.strip()]
 
         summary = metadata.get('summary', '')
-        slug = _slugify(title)
+        slug_val = slugify(title)
 
         # Remove front matter from content if it wasn't cleanly separated
         if content.startswith('---'):
@@ -114,10 +81,10 @@ def _parse_compile_output(output: str, source_memo_ids: list[str]) -> list[dict]
             if end_idx > 0:
                 content = content[end_idx + 3:].strip()
 
-        wiki_links = _extract_wiki_links(content)
+        wiki_links = extract_wiki_links(content)
 
         pages.append({
-            'slug': slug,
+            'slug': slug_val,
             'title': title,
             'wiki_type': wiki_type,
             'content': content,
@@ -344,7 +311,10 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
             progress.update(status='done', progress=100, message=summary)
 
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
         error_msg = str(e)
+        logger.exception("Compile job %s failed: %s", job_id, error_msg)
         progress.update(status='failed', progress=0, message=f'Error: {error_msg}')
 
         try:
@@ -358,7 +328,7 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
                     job.finished_at = datetime.now(timezone.utc)
                     await db.commit()
         except Exception:
-            pass
+            logger.exception("Failed to record compile job failure for %s", job_id)
 
 
 async def trigger_compile(
@@ -385,7 +355,16 @@ async def trigger_compile(
     }
 
     # Launch background task (uses its own DB session)
-    asyncio.create_task(_do_compile(job.id, memo_ids, model_id))
+    task = asyncio.create_task(_do_compile(job.id, memo_ids, model_id))
+
+    # Register with app state for graceful shutdown (if available)
+    try:
+        from app.main import app as _app
+        if hasattr(_app.state, 'background_tasks'):
+            _app.state.background_tasks.add(task)
+            task.add_done_callback(_app.state.background_tasks.discard)
+    except Exception:
+        pass  # running outside FastAPI context (e.g. tests)
 
     return job
 
