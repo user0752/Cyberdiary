@@ -48,6 +48,15 @@ class GameSession(Base):
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Tower defense fields
+    map_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    lives: Mapped[int] = mapped_column(Integer, default=20)
+    gold: Mapped[int] = mapped_column(Integer, default=100)
+    current_wave: Mapped[int] = mapped_column(Integer, default=0)
+    total_waves: Mapped[int] = mapped_column(Integer, default=10)
+    tower_placements: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+    game_state: Mapped[str] = mapped_column(String(20), default="setup")
+    wave_configs: Mapped[str] = mapped_column(Text, default="[]")  # JSON array
 
 
 class GameAnswer(Base):

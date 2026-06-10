@@ -131,6 +131,13 @@ async def generate_questions(
         total_questions=len(questions),
         correct_count=0,
         question_ids=json.dumps(question_ids),
+        lives=20,
+        gold=100,
+        current_wave=0,
+        total_waves=10,
+        tower_placements="{}",
+        game_state="playing",
+        wave_configs="[]",
     )
     db.add(session)
     await db.flush()

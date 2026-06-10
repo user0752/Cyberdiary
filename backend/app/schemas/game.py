@@ -35,6 +35,15 @@ class SessionResponse(BaseModel):
     correct_count: int
     created_at: datetime
     finished_at: datetime | None
+    # Tower defense fields
+    map_id: str | None = None
+    lives: int = 20
+    gold: int = 100
+    current_wave: int = 0
+    total_waves: int = 10
+    tower_placements: str = "{}"
+    game_state: str = "setup"
+    wave_configs: str = "[]"
 
     model_config = {"from_attributes": True}
 
