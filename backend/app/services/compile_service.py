@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +22,7 @@ from app.utils.markdown import slugify, parse_front_matter, extract_wiki_links
 # In-memory progress tracker for SSE streaming
 # Key: job_id, Value: dict with status, progress, message, output
 _compile_progress: dict[str, dict] = {}
-_progress_lock = asyncio.Lock()
+_progress_lock = threading.Lock()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -31,9 +32,9 @@ def get_progress(job_id: str) -> dict | None:
     return _compile_progress.get(job_id)
 
 
-async def _safe_progress_update(job_id: str, **kwargs):
-    """Thread-safe progress update under asyncio.Lock."""
-    async with _progress_lock:
+def _safe_progress_update(job_id: str, **kwargs):
+    """Thread-safe progress update under threading.Lock."""
+    with _progress_lock:
         if job_id in _compile_progress:
             _compile_progress[job_id].update(**kwargs)
 

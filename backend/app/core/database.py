@@ -14,6 +14,9 @@ class Base(DeclarativeBase):
 
 async def init_db():
     """Create all tables, FTS5 indexes, and performance indexes on startup."""
+    # Ensure all models are imported so Base.metadata knows about them
+    import app.models.multi_agent  # noqa: F401
+
     # Step 1: Create ORM tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

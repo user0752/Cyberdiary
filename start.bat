@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo   CyberNote Startup Script
+echo   CyberNote - Interactive Launcher
 echo ========================================
 echo.
 
@@ -22,74 +22,34 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [INFO] Starting backend service...
+:: Ensure backend venv + dependencies
 cd backend
-
-:: Check virtual environment
 if not exist "venv" (
-    echo [INFO] First run, creating Python virtual environment...
+    echo [SETUP] Creating Python virtual environment...
     python -m venv venv
     call venv\Scripts\activate.bat
-    echo [INFO] Installing backend dependencies...
+    echo [SETUP] Installing backend dependencies...
     pip install -r requirements.txt
 ) else (
     call venv\Scripts\activate.bat
+    echo [CHECK] Verifying backend dependencies...
+    pip install -r requirements.txt -q 2>nul
 )
-
-:: Start backend (background)
-start "CyberNote Backend" /min cmd /c "venv\Scripts\activate.bat && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
-
 cd ..
 
-:: Wait for backend to be ready (timeout 30s)
-echo [INFO] Waiting for backend to be ready (checking http://localhost:8000)...
-set BACKEND_READY=0
-for /l %%i in (1,1,30) do (
-    timeout /t 1 /nobreak >nul
-    curl -s http://localhost:8000/api/v1/models >nul 2>&1
-    if !errorlevel! equ 0 (
-        set BACKEND_READY=1
-        goto :backend_ready
-    )
-)
-:backend_ready
-if !BACKEND_READY! equ 1 (
-    echo [INFO] Backend service is ready!
-) else (
-    echo [WARN] Backend did not respond within 30s, starting frontend anyway...
-)
-
-echo [INFO] Starting frontend service...
+:: Ensure frontend node_modules
 cd frontend
-
-:: Check node_modules
 if not exist "node_modules" (
-    echo [INFO] First run, installing frontend dependencies...
-    npm install
+    echo [SETUP] Installing frontend dependencies...
+    call npm install
 )
-
-:: Start frontend (background)
-start "CyberNote Frontend" /min cmd /c "npm run dev"
-
 cd ..
 
 echo.
-echo ========================================
-echo   Startup Complete!
-echo ========================================
+echo [LAUNCH] Starting interactive service dashboard...
 echo.
-echo Frontend: http://localhost:5173
-echo Backend:  http://localhost:8000
-echo API Docs: http://localhost:8000/docs
-echo.
-echo Press any key to open browser...
-pause >nul
 
-:: Open browser
-start http://localhost:5173
-
-echo.
-echo [TIP] Services are running in background.
-echo [TIP] Close the corresponding windows or use Task Manager to stop services.
-echo.
-pause
+:: Run the launcher (with venv Python for proper dependency resolution)
+cd backend
+venv\Scripts\python.exe ..\launcher.py
+cd ..

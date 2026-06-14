@@ -129,7 +129,13 @@ async def search_wiki(db: AsyncSession, query: str, limit: int = 20) -> list[Wik
 
 
 async def get_graph_data(db: AsyncSession) -> tuple[list[dict], list[dict]]:
-    """Get knowledge graph nodes and edges for visualization."""
+    """Get knowledge graph nodes and edges for visualization.
+
+    Edges include both [[page]] links and semantic links discovered
+    by the multi-agent linker.
+    """
+    from app.models.multi_agent import SemanticLink
+
     # Nodes from all wiki pages
     result = await db.execute(
         select(WikiPage.id, WikiPage.title, WikiPage.wiki_type, WikiPage.slug)
@@ -139,9 +145,22 @@ async def get_graph_data(db: AsyncSession) -> tuple[list[dict], list[dict]]:
         for row in result.all()
     ]
 
-    # Edges from wiki_links
+    # Edges from wiki_links ([[page]] bidirectional links)
     result = await db.execute(select(WikiLink.from_slug, WikiLink.to_slug))
     edges = [{"source": row[0], "target": row[1]} for row in result.all()]
+
+    # Edges from semantic_links (multi-agent linker discoveries)
+    sem_result = await db.execute(
+        select(SemanticLink.source_slug, SemanticLink.target_slug).where(
+            SemanticLink.confidence >= 0.7
+        )
+    )
+    for row in sem_result.all():
+        edges.append({
+            "source": row[0],
+            "target": row[1],
+            "relation_type": "semantic",
+        })
 
     return nodes, edges
 

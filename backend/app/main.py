@@ -102,3 +102,7 @@ app.include_router(wiki_router, prefix="/api/v1")
 # Game
 from app.api.v1.game import router as game_router
 app.include_router(game_router, prefix="/api/v1")
+
+# Multi-Agent Compile
+from app.api.v1.multi_agent_compile import router as multi_agent_compile_router
+app.include_router(multi_agent_compile_router, prefix="/api/v1")
