@@ -7,10 +7,11 @@
 > 基于数据层的智能体正在开发中，非常欢迎各位开发者测试、提出问题、改进。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-1.1-blue" alt="version">
   <img src="https://img.shields.io/badge/Vue-3.5-green" alt="vue">
   <img src="https://img.shields.io/badge/FastAPI-0.111+-teal" alt="fastapi">
   <img src="https://img.shields.io/badge/Python-3.10+-yellow" alt="python">
+  <img src="https://img.shields.io/badge/LangGraph-1.2+-purple" alt="langgraph">
   <img src="https://img.shields.io/badge/license-MIT-gray" alt="license">
 </p>
 
@@ -67,7 +68,7 @@
 | 模块 | 功能 |
 |------|------|
 | **Memo Flow** | 时间流笔记，支持 Markdown 编辑（CodeMirror 6）、标签、全文搜索 |
-| **Compile Engine** | LLM 编译引擎，将碎片笔记编译为结构化 Wiki 页面（支持手动/定时触发） |
+| **Compile Engine** | LLM 编译引擎，将碎片笔记编译为结构化 Wiki 页面（支持手动/定时触发）<br>🔥 **v1.1 新增** 多智能体协作编译：Coordinator → Researcher×3 → Integrator → Writer → Reviewer×2 → Arbiter → Editor/Linker，LangGraph 编排，SSE 实时追踪 |
 | **Wiki Hub** | 结构化知识库，支持分类浏览、双向链接 `[[页面名]]`、知识图谱可视化 |
 | **Chat** | AI 对话助手，自动注入 Wiki 上下文，支持流式输出（SSE） |
 | **Model Hub** | 多模型管理，支持 DeepSeek / Qwen / Ollama，API Key 加密存储 |
@@ -83,6 +84,7 @@
 | 后端 | Python FastAPI + SQLAlchemy 2.0 (async) + Pydantic v2 |
 | 数据库 | SQLite + aiosqlite（单机）/ PostgreSQL + asyncpg（生产） |
 | 全文搜索 | SQLite FTS5 虚拟表 |
+| 编排 | LangGraph 1.2+（多智能体 DAG 编排） |
 | LLM | LiteLLM 统一调用（DeepSeek / Qwen / Ollama） |
 | 部署 | Docker Compose + Nginx 反向代理 |
 
@@ -333,27 +335,29 @@ OLLAMA_BASE_URL=http://your-ollama-host:11434
 Cyberdiary/
 ├── backend/                    # 后端（FastAPI）
 │   ├── app/
+│   │   ├── agents/             # 🆕 多智能体模块（Coordinator / Researcher / Integrator / Writer / Reviewer / Arbiter / Editor / Linker）
 │   │   ├── api/
-│   │   │   ├── v1/             # 路由层（memo, wiki, chat, compile, model）
+│   │   │   ├── v1/             # 路由层（memo, wiki, chat, compile, multi_agent_compile, model）
 │   │   │   └── deps.py         # 依赖注入（DB session、认证）
-│   │   ├── core/               # 配置、数据库连接、安全工具
-│   │   ├── models/             # SQLAlchemy ORM 模型
+│   │   ├── core/               # 配置、数据库连接、安全工具、🆕 熔断/重试/缓存/追踪
+│   │   ├── models/             # SQLAlchemy ORM 模型（🆕 agent_state, multi_agent）
 │   │   ├── schemas/            # Pydantic 请求/响应模型
-│   │   ├── services/           # 业务逻辑层
-│   │   ├── prompts/            # LLM Prompt 模板（.md 文件）
+│   │   ├── services/           # 业务逻辑层（🆕 multi_agent_graph, human_review_manager, evaluation_service）
+│   │   ├── prompts/            # LLM Prompt 模板（🆕 multi_agent/ 含 8 个 Agent 提示词）
 │   │   └── main.py             # 应用入口
 │   ├── data/                   # 运行时数据（SQLite、Wiki .md 文件）
+│   ├── tests/                  # 🆕 单元测试 + 集成测试
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/                   # 前端（Vue 3 + Vite）
 │   ├── src/
-│   │   ├── api/                # API 请求层
-│   │   ├── components/         # 通用组件
+│   │   ├── api/                # API 请求层（🆕 compile.ts）
+│   │   ├── components/         # 通用组件（🆕 CompilationTracePanel, CompileResult, HumanReviewPanel）
 │   │   ├── stores/             # Pinia 状态管理
-│   │   ├── views/              # 页面组件
+│   │   ├── views/              # 页面组件（🆕 MultiAgentCompileView）
 │   │   ├── styles/             # 全局样式与 CSS 变量
-│   │   ├── router/             # 路由配置
+│   │   ├── router/             # 路由配置（🆕 /compile 页面）
 │   │   ├── App.vue
 │   │   └── main.ts
 │   ├── Dockerfile
@@ -362,7 +366,8 @@ Cyberdiary/
 ├── nginx/
 │   └── nginx.conf              # Nginx 反向代理配置
 ├── docker-compose.yml
-├── start.bat                   # Windows 一键启动脚本
+├── launcher.py                 # 🆕 交互式服务仪表盘（Q=退出 R=重启后端 F=重启前端）
+├── start.bat                   # Windows 一键启动脚本（🆕 改用 launcher.py）
 └── start.sh                    # Linux/macOS 一键启动脚本
 ```
 
@@ -383,7 +388,7 @@ Cyberdiary/
 |------|------|------|
 | Memo | `GET/POST /api/v1/memo` | 笔记增删改查 |
 | Wiki | `GET /api/v1/wiki` | Wiki 页面查询 |
-| Compile | `POST /api/v1/compile` | 触发编译任务（SSE 流式） |
+| Compile | `POST /api/v1/compile` / `POST /api/v1/compile/multi-agent` | 触发编译任务（SSE 流式），🆕 多智能体模式 |
 | Chat | `POST /api/v1/chat` | AI 对话（SSE 流式） |
 | Model | `GET/POST /api/v1/model` | 模型配置管理 |
 
