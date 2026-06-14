@@ -106,3 +106,7 @@ app.include_router(game_router, prefix="/api/v1")
 # Multi-Agent Compile
 from app.api.v1.multi_agent_compile import router as multi_agent_compile_router
 app.include_router(multi_agent_compile_router, prefix="/api/v1")
+
+# Knowledge Graph
+from app.api.v1.knowledge_graph import router as knowledge_graph_router
+app.include_router(knowledge_graph_router, prefix="/api/v1")

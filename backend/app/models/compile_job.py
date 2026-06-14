@@ -24,6 +24,7 @@ class CompileJob(Base):
     current_layer: Mapped[str | None] = mapped_column(String(20), nullable=True)
     final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     compilation_log: Mapped[str | None] = mapped_column(Text, nullable=True)
+    integrated_knowledge: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

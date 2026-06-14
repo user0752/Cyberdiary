@@ -440,11 +440,18 @@ async def _run_multi_agent_compile(
                 job.compilation_log = json.dumps(
                     final_state.get("compilation_log", []), ensure_ascii=False
                 )
+                job.integrated_knowledge = json.dumps(
+                    final_state.get("integrated_knowledge", {}), ensure_ascii=False
+                )
             await db.commit()
 
             _safe_progress_update(
                 job_id, status="completed", progress=100,
                 message=f"Compiled {len(memos)} memos into {len(pages)} pages",
+                final_score=final_state.get("final_score", 0),
+                wiki_draft=final_state.get("wiki_draft", ""),
+                wiki_revised=final_state.get("wiki_revised", ""),
+                suggested_links=final_state.get("suggested_links", []),
             )
 
             logger.info("[MA-Compile] Job %s: completed successfully — %d memos → %d pages, score=%.1f",

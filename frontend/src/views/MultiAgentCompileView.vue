@@ -405,13 +405,14 @@ onMounted(async () => {
 
         <!-- Compile Result -->
         <CompileResult
-          v-if="!isCompiling && (finalScore > 0 || wikiContent || errorMsg)"
+          v-if="!isCompiling && (finalScore > 0 || wikiContent || errorMsg || jobId)"
           :final-score="finalScore"
           :total-events="traceEvents.length"
           :duration-sec="durationSec"
           :wiki-content="wikiContent"
           :semantic-links="semanticLinks"
           :error-msg="errorMsg"
+          :job-id="jobId"
         />
       </main>
     </div>

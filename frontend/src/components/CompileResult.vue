@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed, defineAsyncComponent } from 'vue'
 import type { SemanticLink } from '../api/compile'
+
+const KnowledgeGraph = defineAsyncComponent(() => import('./graph/KnowledgeGraph.vue'))
 
 const props = defineProps<{
   finalScore: number
@@ -9,7 +11,10 @@ const props = defineProps<{
   wikiContent: string | null
   semanticLinks: SemanticLink[]
   errorMsg: string | null
+  jobId?: string | null
 }>()
+
+const activeTab = ref<'wiki' | 'graph'>('wiki')
 
 const scoreColor = computed(() => {
   if (props.finalScore >= 8.5) return 'var(--neon-green)'
@@ -75,16 +80,44 @@ const relationColors: Record<string, string> = {
       <p class="error-msg">{{ errorMsg }}</p>
     </div>
 
-    <!-- Wiki Preview -->
-    <div v-if="wikiContent" class="wiki-preview">
-      <div class="section-header">
-        <svg viewBox="0 0 20 20" fill="currentColor" class="section-icon">
-          <path d="M9 2a1 1 0 00-.894.553L6.382 6H3a1 1 0 000 2h1.07l.938 8.442A1 1 0 006.001 17h7.998a1 1 0 00.993-.558L15.93 8H17a1 1 0 100-2h-3.382L11.894 2.553A1 1 0 0011 2H9z"/>
-        </svg>
-        <span>WIKI OUTPUT</span>
+    <!-- Tabs: Wiki Preview / Knowledge Graph -->
+    <div v-if="wikiContent || jobId" class="result-tabs">
+      <div class="tab-bar">
+        <button
+          v-if="wikiContent"
+          class="tab-btn"
+          :class="{ active: activeTab === 'wiki' }"
+          @click="activeTab = 'wiki'"
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" class="tab-icon">
+            <path d="M9 2a1 1 0 00-.894.553L6.382 6H3a1 1 0 000 2h1.07l.938 8.442A1 1 0 006.001 17h7.998a1 1 0 00.993-.558L15.93 8H17a1 1 0 100-2h-3.382L11.894 2.553A1 1 0 0011 2H9z"/>
+          </svg>
+          WIKI OUTPUT
+        </button>
+        <button
+          v-if="jobId"
+          class="tab-btn"
+          :class="{ active: activeTab === 'graph' }"
+          @click="activeTab = 'graph'"
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" class="tab-icon">
+            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+            <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/>
+          </svg>
+          知识图谱
+        </button>
       </div>
-      <div class="wiki-content">
-        <pre>{{ wikiContent }}</pre>
+
+      <!-- Wiki content -->
+      <div v-if="activeTab === 'wiki' && wikiContent" class="wiki-preview">
+        <div class="wiki-content">
+          <pre>{{ wikiContent }}</pre>
+        </div>
+      </div>
+
+      <!-- Knowledge graph -->
+      <div v-if="activeTab === 'graph' && jobId" class="graph-container">
+        <KnowledgeGraph :job-id="jobId" />
       </div>
     </div>
 
@@ -243,6 +276,67 @@ const relationColors: Record<string, string> = {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* Tabs */
+.result-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--bg-card);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  overflow: hidden;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab-btn:hover {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.wiki-preview {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border-top: none;
+}
+
+.graph-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
   overflow: hidden;
 }
 
