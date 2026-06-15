@@ -14,6 +14,13 @@ router = APIRouter(prefix="/compile", tags=["knowledge-graph"])
 logger = logging.getLogger(__name__)
 
 
+@router.get("/knowledge-graph")
+async def get_aggregate_knowledge_graph(db: AsyncSession = Depends(get_db)):
+    """Get the aggregated knowledge graph across all completed compilations."""
+    data = await graph_data_service.get_aggregate_knowledge_graph(db)
+    return {"code": 0, "message": "ok", "data": data}
+
+
 @router.get("/jobs/{job_id}/knowledge-graph")
 async def get_knowledge_graph(job_id: str, db: AsyncSession = Depends(get_db)):
     """Get the full knowledge graph for a completed compilation job."""

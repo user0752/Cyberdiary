@@ -12,7 +12,8 @@ const navItems = [
   { path: '/chat', label: 'CHAT', icon: '03', sub: 'AI对话' },
   { path: '/game', label: 'GAME', icon: '04', sub: '知识闯关' },
   { path: '/compile', label: 'COMP', icon: '05', sub: '智能编译' },
-  { path: '/settings', label: 'SYS', icon: '06', sub: '系统设置' },
+  { path: '/graph', label: 'GRAPH', icon: '06', sub: '知识图谱' },
+  { path: '/settings', label: 'SYS', icon: '07', sub: '系统设置' },
 ]
 
 onMounted(() => {

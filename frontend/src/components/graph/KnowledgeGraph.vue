@@ -92,7 +92,7 @@ import EntityDetailPanel from './EntityDetailPanel.vue'
 import CompilationProgressBar from './CompilationProgressBar.vue'
 
 const props = defineProps<{
-  jobId: string
+  jobId?: string
   showProgress?: boolean
   currentPhase?: string
   progressPercent?: number
@@ -116,7 +116,10 @@ const viewMode = ref<'2d' | '3d'>('2d')
 let resizeObs: ResizeObserver | null = null
 
 async function loadGraph() {
-  await store.loadGraph(props.jobId)
+  if (props.jobId) {
+    await store.loadGraph(props.jobId)
+  }
+  // When jobId is not provided, the parent handles loading (e.g. aggregate graph)
 }
 
 function switchMode(mode: '2d' | '3d') {

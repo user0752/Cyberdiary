@@ -6,6 +6,7 @@ import type { KnowledgeGraph, GraphNode, GraphEdge, NodeDetail } from '@/types/g
 import { getEdgeSourceId, getEdgeTargetId } from '@/types/graph'
 import {
   fetchKnowledgeGraph,
+  fetchAggregateKnowledgeGraph,
   fetchNodeDetail,
   searchGraphNodes,
 } from '@/api/knowledgeGraph'
@@ -63,6 +64,21 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     try {
       graph.value = await fetchKnowledgeGraph(jobId)
       // Initialize filters: all types active
+      activeNodeTypes.value = new Set(graph.value.nodes.map((n) => n.type))
+      activeEdgeTypes.value = new Set(graph.value.edges.map((e) => e.type))
+    } catch (e: any) {
+      error.value = e.message || 'Failed to load graph'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function loadAggregateGraph() {
+    loading.value = true
+    error.value = null
+    currentJobId.value = null
+    try {
+      graph.value = await fetchAggregateKnowledgeGraph()
       activeNodeTypes.value = new Set(graph.value.nodes.map((n) => n.type))
       activeEdgeTypes.value = new Set(graph.value.edges.map((e) => e.type))
     } catch (e: any) {
@@ -167,6 +183,7 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
     stats,
     // Actions
     loadGraph,
+    loadAggregateGraph,
     loadNodeDetail,
     selectNode,
     hoverNode,

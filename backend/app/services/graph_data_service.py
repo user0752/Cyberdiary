@@ -239,6 +239,168 @@ class GraphDataService:
             },
         }
 
+    async def get_aggregate_knowledge_graph(self, db: AsyncSession) -> dict:
+        """Build a knowledge graph aggregating ALL completed compilation jobs."""
+        result = await db.execute(
+            select(CompileJob).where(
+                CompileJob.status == "done",
+                CompileJob.compile_type == "multi_agent",
+            )
+        )
+        jobs = list(result.scalars().all())
+
+        # Merge nodes and edges from all jobs
+        merged_nodes: dict[str, dict] = {}
+        merged_edges: dict[str, dict] = {}
+
+        for job in jobs:
+            ik = {}
+            if job.integrated_knowledge:
+                try:
+                    ik = json.loads(job.integrated_knowledge)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+            raw_entities = ik.get("entities", [])
+            raw_relations = ik.get("relations", [])
+
+            try:
+                memo_ids = json.loads(job.memo_ids) if job.memo_ids else []
+            except (json.JSONDecodeError, TypeError):
+                memo_ids = []
+
+            for entity in raw_entities:
+                name = entity.get("name", "")
+                if not name:
+                    continue
+                nid = _make_node_id(name)
+                etype = _ENTITY_TYPE_MAP.get(entity.get("type", ""), "other")
+                if nid in merged_nodes:
+                    existing = merged_nodes[nid]
+                    if len(entity.get("description", "")) > len(existing.get("description", "")):
+                        existing["description"] = entity.get("description", "")
+                    existing["memoCount"] = max(existing["memoCount"], 1)
+                    # Merge source memos
+                    for mid in memo_ids:
+                        if mid not in existing["sourceMemos"]:
+                            existing["sourceMemos"].append(mid)
+                else:
+                    merged_nodes[nid] = {
+                        "id": nid,
+                        "label": name,
+                        "type": etype,
+                        "group": f"cluster_{etype}",
+                        "weight": self._calc_entity_weight(entity, len(raw_entities)),
+                        "memoCount": 1,
+                        "description": entity.get("description", ""),
+                        "sourceMemos": list(memo_ids),
+                        "originalEntity": entity,
+                    }
+
+            for rel in raw_relations:
+                subj = rel.get("subject", "")
+                obj = rel.get("object", "")
+                if not subj or not obj:
+                    continue
+                src_id = _make_node_id(subj)
+                tgt_id = _make_node_id(obj)
+                pred = rel.get("predicate", "relates_to")
+                etype = self._map_relation_type(pred)
+                eid = _make_edge_id(src_id, tgt_id, etype)
+                if eid not in merged_edges:
+                    merged_edges[eid] = {
+                        "id": eid,
+                        "source": src_id,
+                        "target": tgt_id,
+                        "label": pred,
+                        "type": etype,
+                        "confidence": rel.get("confidence", 0.5),
+                        "directed": True,
+                    }
+
+        # Add wiki page nodes and links
+        wiki_pages = await self._get_all_wiki_pages(db)
+        for page in wiki_pages:
+            nid = f"wiki_{page.slug}"
+            source_memo_ids = []
+            try:
+                source_memo_ids = json.loads(page.source_memo_ids or "[]")
+            except (json.JSONDecodeError, TypeError):
+                pass
+            if nid not in merged_nodes:
+                merged_nodes[nid] = {
+                    "id": nid,
+                    "label": page.title,
+                    "type": page.wiki_type or "concept",
+                    "group": "wiki_pages",
+                    "weight": 0.6,
+                    "memoCount": len(source_memo_ids),
+                    "description": page.summary or "",
+                    "sourceMemos": source_memo_ids,
+                    "originalEntity": {"slug": page.slug, "title": page.title},
+                }
+
+        all_slugs = [p.slug for p in wiki_pages]
+        semantic_links = await self._get_semantic_links(db, all_slugs)
+        wiki_links = await self._get_wiki_links(db, all_slugs)
+
+        for sl in semantic_links:
+            src_id = f"wiki_{sl.source_slug}"
+            tgt_id = f"wiki_{sl.target_slug}"
+            eid = _make_edge_id(src_id, tgt_id, sl.relation_type or "relates_to")
+            if eid not in merged_edges:
+                merged_edges[eid] = {
+                    "id": eid,
+                    "source": src_id,
+                    "target": tgt_id,
+                    "label": sl.relation_type or "related",
+                    "type": sl.relation_type or "relates_to",
+                    "confidence": sl.confidence or 0.5,
+                    "directed": True,
+                }
+
+        for wl in wiki_links:
+            src_id = f"wiki_{wl.from_slug}"
+            tgt_id = f"wiki_{wl.to_slug}"
+            eid = _make_edge_id(src_id, tgt_id, "references")
+            if eid not in merged_edges:
+                merged_edges[eid] = {
+                    "id": eid,
+                    "source": src_id,
+                    "target": tgt_id,
+                    "label": "references",
+                    "type": "references",
+                    "confidence": 1.0,
+                    "directed": True,
+                }
+
+        nodes_list = list(merged_nodes.values())
+        edges_list = list(merged_edges.values())
+
+        node_type_counts: dict[str, int] = {}
+        for n in nodes_list:
+            t = n["type"]
+            node_type_counts[t] = node_type_counts.get(t, 0) + 1
+        edge_type_counts: dict[str, int] = {}
+        for e in edges_list:
+            t = e["type"]
+            edge_type_counts[t] = edge_type_counts.get(t, 0) + 1
+
+        return {
+            "nodes": nodes_list,
+            "edges": edges_list,
+            "meta": {
+                "totalNodes": len(nodes_list),
+                "totalEdges": len(edges_list),
+                "nodeTypes": node_type_counts,
+                "edgeTypes": edge_type_counts,
+                "maxConnectedComponent": _compute_max_connected_component(nodes_list, edges_list),
+                "compilationId": "aggregate",
+                "compiledAt": (jobs[-1].finished_at.isoformat() if jobs and jobs[-1].finished_at else ""),
+                "totalJobs": len(jobs),
+            },
+        }
+
     async def get_node_detail(
         self, db: AsyncSession, job_id: str, node_id: str
     ) -> dict | None:
@@ -344,6 +506,11 @@ class GraphDataService:
             "referenced_by": "references",
         }
         return mapping.get(pred, "relates_to")
+
+    async def _get_all_wiki_pages(self, db: AsyncSession) -> list[WikiPage]:
+        """Get all wiki pages."""
+        result = await db.execute(select(WikiPage))
+        return list(result.scalars().all())
 
     async def _get_wiki_pages_for_memos(
         self, db: AsyncSession, memo_ids: list[str]

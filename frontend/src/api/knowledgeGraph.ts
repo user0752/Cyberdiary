@@ -9,6 +9,12 @@ export async function fetchKnowledgeGraph(jobId: string): Promise<KnowledgeGraph
   return res.data.data
 }
 
+/** Get the aggregated knowledge graph across ALL completed compilations. */
+export async function fetchAggregateKnowledgeGraph(): Promise<KnowledgeGraph> {
+  const res = await client.get('/compile/knowledge-graph')
+  return res.data.data
+}
+
 /** Get a single node with its related edges and wiki pages. */
 export async function fetchNodeDetail(jobId: string, nodeId: string): Promise<NodeDetail> {
   const res = await client.get(`/compile/jobs/${jobId}/knowledge-graph/node/${nodeId}`)

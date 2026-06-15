@@ -12,8 +12,7 @@ const containerRef = ref<HTMLDivElement | null>(null)
 const width = ref(800)
 const height = ref(600)
 const webglAvailable = ref(true)
-
-let resizeObs: ResizeObserver | null = null
+let mounted = false
 
 // Named handlers so they can be removed
 function onClick(e: MouseEvent) {
@@ -65,6 +64,8 @@ onMounted(() => {
     return
   }
 
+  mounted = true
+
   // Resize observer
   if (containerRef.value) {
     resizeObs = new ResizeObserver((entries) => {
@@ -79,7 +80,16 @@ onMounted(() => {
   containerRef.value?.addEventListener('click', onClick)
   containerRef.value?.addEventListener('mousemove', onMouseMove)
   containerRef.value?.addEventListener('mouseleave', onMouseLeave)
+
+  // Build graph if data is already available
+  const nodes = store.filteredNodes
+  const edges = store.filteredEdges
+  if (nodes.length > 0) {
+    threeGraph.buildGraph(nodes, edges)
+  }
 })
+
+let resizeObs: ResizeObserver | null = null
 
 onUnmounted(() => {
   resizeObs?.disconnect()
@@ -88,18 +98,17 @@ onUnmounted(() => {
   containerRef.value?.removeEventListener('mousemove', onMouseMove)
   containerRef.value?.removeEventListener('mouseleave', onMouseLeave)
   threeGraph.dispose()
-  // Don't call store.$reset() here — parent (KnowledgeGraph) handles it
 })
 
-// Watch BOTH nodes and edges (BUG 4 fix)
+// Watch BOTH nodes and edges — only after mount
 watch(
   () => [store.filteredNodes, store.filteredEdges],
   ([nodes, edges]) => {
-    if (nodes.length > 0 && webglAvailable.value) {
+    if (mounted && nodes.length > 0 && webglAvailable.value) {
       threeGraph.buildGraph(nodes, edges)
     }
   },
-  { immediate: true, deep: false },
+  { deep: false },
 )
 
 defineExpose({

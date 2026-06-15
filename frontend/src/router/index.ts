@@ -39,6 +39,11 @@ const router = createRouter({
       name: 'compile',
       component: () => import('../views/MultiAgentCompileView.vue'),
     },
+    {
+      path: '/graph',
+      name: 'graph',
+      component: () => import('../views/KnowledgeGraphView.vue'),
+    },
   ],
 })
 

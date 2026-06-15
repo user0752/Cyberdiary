@@ -1,0 +1,144 @@
+<template>
+  <div class="knowledge-graph-page">
+    <div class="page-header">
+      <div class="header-left">
+        <h1>知识图谱</h1>
+        <p class="subtitle">跨编译聚合 · 随知识增长</p>
+      </div>
+      <div class="header-stats" v-if="store.graph">
+        <div class="stat">
+          <span class="stat-value">{{ store.stats.totalNodes }}</span>
+          <span class="stat-label">节点</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">{{ store.stats.totalEdges }}</span>
+          <span class="stat-label">关系</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">{{ store.graph.meta.totalJobs || 0 }}</span>
+          <span class="stat-label">编译</span>
+        </div>
+      </div>
+      <button class="refresh-btn" @click="refresh" :disabled="store.loading">
+        <svg viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
+        </svg>
+        刷新
+      </button>
+    </div>
+    <div class="graph-wrapper">
+      <KnowledgeGraph />
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import { useKnowledgeGraphStore } from '@/stores/knowledgeGraph'
+import KnowledgeGraph from '@/components/graph/KnowledgeGraph.vue'
+
+const store = useKnowledgeGraphStore()
+
+function refresh() {
+  store.loadAggregateGraph()
+}
+
+onMounted(() => {
+  refresh()
+})
+</script>
+
+<style scoped>
+.knowledge-graph-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.header-left h1 {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+  letter-spacing: 0.05em;
+}
+
+.header-stats {
+  display: flex;
+  gap: 20px;
+  margin-left: auto;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.stat-label {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.refresh-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.graph-wrapper {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+</style>
