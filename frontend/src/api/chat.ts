@@ -1,4 +1,5 @@
 import client from './client'
+import { streamSSE } from '@/composables/useSSEStream'
 
 export interface Conversation {
   id: string
@@ -34,53 +35,29 @@ export async function* chatStream(
   message: string,
   modelId: string,
   convId: string | null = null,
+  signal?: AbortSignal,
 ): AsyncGenerator<{ content?: string; error?: string; conv_id?: string }, void, unknown> {
-  const response = await fetch('/api/v1/chat/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      model_id: modelId,
-      conv_id: convId,
-    }),
-  })
-
-  if (!response.ok) {
-    let detail = `HTTP ${response.status}`
-    try {
-      const body = await response.json()
-      if (body.message) detail = body.message
-    } catch {
-      // response body is not JSON, use status text
-      if (response.statusText) detail = `${response.status} ${response.statusText}`
+  try {
+    for await (const chunk of streamSSE<{
+      content?: string
+      error?: string
+      conv_id?: string
+    }>('/api/v1/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        model_id: modelId,
+        conv_id: convId,
+      }),
+      signal,
+    })) {
+      yield chunk
     }
+  } catch (err: unknown) {
+    // Don't report errors from intentional abort
+    if (err instanceof DOMException && err.name === 'AbortError') return
+    const detail = err instanceof Error ? err.message : String(err)
     yield { error: detail }
-    return
-  }
-
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const content = line.slice(6)
-        if (content === '[DONE]') return
-        try {
-          const parsed = JSON.parse(content)
-          yield parsed
-        } catch {
-          // ignore parse errors
-        }
-      }
-    }
   }
 }

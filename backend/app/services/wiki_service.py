@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select, delete as sql_delete, func, text, update
@@ -13,6 +14,19 @@ from app.models.wiki import WikiPage, WikiLink
 from app.utils.markdown import extract_wiki_links
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_fts5_query(query: str) -> str:
+    """Sanitize user input for SQLite FTS5 MATCH queries.
+
+    Strips FTS5 operators and special characters that could cause
+    syntax errors or unintended matching behavior.
+    """
+    query = re.sub(r'\w+\s*:', '', query)
+    query = re.sub(r'\b(AND|OR|NOT|NEAR)\b', '', query, flags=re.IGNORECASE)
+    query = re.sub(r'[*"()^:{}]', ' ', query)
+    query = ' '.join(query.split())
+    return query
 
 
 async def list_wiki_pages(
@@ -98,6 +112,10 @@ async def update_wiki_page(
 
 async def search_wiki(db: AsyncSession, query: str, limit: int = 20) -> list[WikiPage]:
     """Full-text search using FTS5 with LIKE fallback."""
+    sanitized = _sanitize_fts5_query(query)
+    if not sanitized:
+        return []
+
     try:
         stmt = text("""
             SELECT w.* FROM wiki_pages w
@@ -106,7 +124,7 @@ async def search_wiki(db: AsyncSession, query: str, limit: int = 20) -> list[Wik
             ORDER BY rank
             LIMIT :limit
         """)
-        result = await db.execute(stmt, {"query": query, "limit": limit})
+        result = await db.execute(stmt, {"query": sanitized, "limit": limit})
         rows = result.fetchall()
         if rows:
             return [WikiPage(**dict(zip(result.keys(), row))) for row in rows]

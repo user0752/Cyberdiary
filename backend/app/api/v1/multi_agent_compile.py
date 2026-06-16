@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time as _time_module
 import uuid
 from datetime import datetime, timezone
 
@@ -11,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.core.database import async_session
 from app.models.compile_job import CompileJob
 from app.models.memo import Memo
@@ -50,15 +51,12 @@ async def _evaluate_page(slug: str, content: str, source_texts: list[str]):
         pass
 
 
-router = APIRouter(prefix="/compile", tags=["compile-multi-agent"])
+router = APIRouter(
+    prefix="/compile",
+    tags=["compile-multi-agent"],
+    dependencies=[Depends(get_current_user)],
+)
 logger = logging.getLogger(__name__)
-
-# [DIAGNOSTIC] Force our logger messages to be visible regardless of
-# the global logging configuration. Python's default level is WARNING
-# and no logging.basicConfig is called anywhere in this project, so
-# all logger.info() calls are silently discarded.
-logging.getLogger().setLevel(logging.INFO)
-
 # Global timeout for the entire multi-agent pipeline (seconds)
 PIPELINE_TIMEOUT = 600  # 10 minutes — enough for all agents even with some timeouts
 
@@ -86,6 +84,7 @@ async def trigger_multi_agent_compile(
         "status": "pending",
         "progress": 0,
         "message": "Queued...",
+        "_created_at": _time_module.monotonic(),
     }
 
     task = asyncio.create_task(
@@ -246,7 +245,7 @@ async def _run_multi_agent_compile(
 
     # [FIX #5] Explicitly set status to "running" — the setdefault only
     # creates the dict if absent; the API endpoint already set it to "pending".
-    _safe_progress_update(job_id, status="running", progress=0, message="Starting...")
+    await _safe_progress_update(job_id, status="running", progress=0, message="Starting...")
     logger.info("[MA-Compile] Job %s started: %d memos, config=%s",
                 job_id, len(memo_ids), {k: v for k, v in config.items() if k != "model"})
 
@@ -267,7 +266,7 @@ async def _run_multi_agent_compile(
             result = await db.execute(select(Memo).where(Memo.id.in_(memo_ids)))
             memos = list(result.scalars().all())
             if not memos:
-                _safe_progress_update(job_id, status="failed", message="No memos found")
+                await _safe_progress_update(job_id, status="failed", message="No memos found")
                 logger.error("[MA-Compile] Job %s: no memos found for ids %s", job_id, memo_ids)
                 return
             memo_contents = [m.content for m in memos]
@@ -284,7 +283,7 @@ async def _run_multi_agent_compile(
                 # Fallback: grab first available model from DB
                 model_config = await _get_first_model_config(db)
             if not model_config:
-                _safe_progress_update(
+                await _safe_progress_update(
                     job_id, status="failed",
                     message="No AI model configured. Please add a model in Settings first.",
                 )
@@ -308,8 +307,11 @@ async def _run_multi_agent_compile(
 
         # [FIX #4] Create tracer BEFORE starting the graph so the SSE
         # stream can register its callback when it connects.
+        from app.services.multi_agent_graph import _gc_stale_tracers, _tracer_timestamps
+        _gc_stale_tracers()
         tracer = CompilationTracer(job_id=job_id)
         _active_tracers[job_id] = tracer
+        _tracer_timestamps[job_id] = _time_module.monotonic()
 
         # [FIX #6] Include human_reviewed in initial state
         initial_state: CompilationState = {
@@ -340,7 +342,7 @@ async def _run_multi_agent_compile(
         }
 
         # --- Run LangGraph pipeline ---
-        _safe_progress_update(job_id, progress=5, message="Checking model connectivity...")
+        await _safe_progress_update(job_id, progress=5, message="Checking model connectivity...")
         logger.info("[MA-Compile] Job %s: checking model connectivity...", job_id)
         try:
             ping_messages = [{"role": "user", "content": "ping"}]
@@ -351,13 +353,13 @@ async def _run_multi_agent_compile(
             logger.info("[MA-Compile] Job %s: model connectivity OK", job_id)
         except Exception as ping_err:
             logger.error("[MA-Compile] Job %s: model connectivity FAILED: %s", job_id, ping_err)
-            _safe_progress_update(
+            await _safe_progress_update(
                 job_id, status="failed",
                 message=f"Model unreachable: {ping_err}",
             )
             return
 
-        _safe_progress_update(job_id, progress=10, message="Launching multi-agent pipeline...")
+        await _safe_progress_update(job_id, progress=10, message="Launching multi-agent pipeline...")
         logger.info("[MA-Compile] Job %s: building LangGraph pipeline...", job_id)
 
         graph_builder = MultiAgentCompilationGraph(default_config)
@@ -376,7 +378,7 @@ async def _run_multi_agent_compile(
         except asyncio.TimeoutError:
             logger.error("[MA-Compile] Job %s: pipeline timed out after %ds",
                          job_id, PIPELINE_TIMEOUT)
-            _safe_progress_update(
+            await _safe_progress_update(
                 job_id, status="failed",
                 message=f"Pipeline timed out after {PIPELINE_TIMEOUT}s. "
                         "This may be caused by slow LLM responses or network issues.",
@@ -384,13 +386,14 @@ async def _run_multi_agent_compile(
             return
         finally:
             _active_tracers.pop(job_id, None)
+            _tracer_timestamps.pop(job_id, None)
 
         logger.info("[MA-Compile] Job %s: graph completed. final_score=%.1f, review_passed=%s",
                     job_id, final_state.get("final_score", 0),
                     final_state.get("review_passed", False))
 
         # --- Save results ---
-        _safe_progress_update(job_id, progress=80, message="Saving results...")
+        await _safe_progress_update(job_id, progress=80, message="Saving results...")
 
         async with async_session() as db:
             wiki_content = final_state.get("wiki_revised") or final_state.get("wiki_draft", "")
@@ -445,7 +448,7 @@ async def _run_multi_agent_compile(
                 )
             await db.commit()
 
-            _safe_progress_update(
+            await _safe_progress_update(
                 job_id, status="completed", progress=100,
                 message=f"Compiled {len(memos)} memos into {len(pages)} pages",
                 final_score=final_state.get("final_score", 0),
@@ -465,7 +468,7 @@ async def _run_multi_agent_compile(
 
     except Exception as e:
         logger.exception("[MA-Compile] Job %s FAILED: %s", job_id, e)
-        _safe_progress_update(job_id, status="failed", message=f"Error: {str(e)}")
+        await _safe_progress_update(job_id, status="failed", message=f"Error: {str(e)}")
         try:
             async with async_session() as db:
                 job = (await db.execute(

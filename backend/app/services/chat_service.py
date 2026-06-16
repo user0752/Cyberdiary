@@ -1,6 +1,7 @@
 """Chat business logic - context injection + SSE streaming."""
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -8,9 +9,12 @@ from typing import AsyncGenerator
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import async_session
 from app.models.chat import Conversation, Message
 from app.services import llm_service
 from app.services import wiki_service
+
+logger = logging.getLogger(__name__)
 
 
 async def create_conversation(db: AsyncSession, title: str, model_id: str) -> Conversation:
@@ -126,22 +130,44 @@ async def chat_stream(
     message: str,
     model_id: str,
 ) -> AsyncGenerator[str, None]:
-    """Stream chat response via SSE. Yields content chunks."""
-    # Create conversation if needed
-    if not conv_id:
-        conv = await create_conversation(db, "新对话", model_id)
-        conv_id = conv.id
+    """Stream chat response via SSE. Yields content chunks.
 
-    # Save user message
-    await add_message(db, conv_id, "user", message)
+    Uses an independent DB session for message persistence so that the
+    request-level session is not held in a dirty state for the entire
+    SSE lifetime. This prevents data loss when the client disconnects
+    mid-stream.
+    """
+    # Create conversation and save user message in an independent session
+    async with async_session() as msg_db:
+        async with msg_db.begin():
+            if not conv_id:
+                conv = Conversation(
+                    id=str(uuid.uuid4()),
+                    title="新对话",
+                    model_id=model_id,
+                )
+                msg_db.add(conv)
+                await msg_db.flush()
+                conv_id = conv.id
 
-    # Update conversation title (use first 30 chars of user message)
-    conv = await get_conversation(db, conv_id)
-    if conv and len(conv.title) < 5:
-        conv.title = message[:30] + ("..." if len(message) > 30 else "")
-        conv.updated_at = datetime.now(timezone.utc)
+            # Save user message
+            user_msg = Message(
+                id=str(uuid.uuid4()),
+                conv_id=conv_id,
+                role="user",
+                content=message,
+            )
+            msg_db.add(user_msg)
 
-    # Get model config
+            # Update conversation title (use first 30 chars of user message)
+            conv = (await msg_db.execute(
+                select(Conversation).where(Conversation.id == conv_id)
+            )).scalar_one_or_none()
+            if conv and len(conv.title) < 5:
+                conv.title = message[:30] + ("..." if len(message) > 30 else "")
+                conv.updated_at = datetime.now(timezone.utc)
+
+    # Read-only: get model config and build context using the request session
     model_config = await llm_service.get_model_config_from_db(db, model_id)
     if not model_config:
         yield f"data: {json.dumps({'error': 'Model not configured'})}\n\n"
@@ -175,10 +201,6 @@ async def chat_stream(
     # Stream
     full_response = ""
     try:
-        kwargs = llm_service.build_litellm_kwargs(model_config)
-        kwargs["messages"] = messages
-        kwargs["stream"] = True
-
         response = await llm_service.chat_completion(model_config, messages, stream=True)
         async for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:
@@ -186,9 +208,20 @@ async def chat_stream(
                 full_response += token
                 yield f"data: {json.dumps({'content': token, 'conv_id': conv_id})}\n\n"
 
-        # Save assistant response
+        # Save assistant response in an independent session
         if full_response:
-            await add_message(db, conv_id, "assistant", full_response)
+            try:
+                async with async_session() as save_db:
+                    async with save_db.begin():
+                        assistant_msg = Message(
+                            id=str(uuid.uuid4()),
+                            conv_id=conv_id,
+                            role="assistant",
+                            content=full_response,
+                        )
+                        save_db.add(assistant_msg)
+            except Exception:
+                logger.exception("Failed to save assistant response for conv %s", conv_id)
 
         yield "data: [DONE]\n\n"
 

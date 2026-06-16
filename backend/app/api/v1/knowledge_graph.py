@@ -7,10 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.services.graph_data_service import graph_data_service
 
-router = APIRouter(prefix="/compile", tags=["knowledge-graph"])
+router = APIRouter(
+    prefix="/compile",
+    tags=["knowledge-graph"],
+    dependencies=[Depends(get_current_user)],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -83,14 +87,32 @@ async def stream_graph_updates(job_id: str):
     Currently a placeholder — emits graph_complete when compilation finishes.
     Full incremental updates will be implemented in Phase 4.
     """
-    from app.services.compile_service import _compile_progress
+    from app.services.compile_service import get_progress, get_progress_from_db
 
     async def event_generator():
         last_status = None
         while True:
-            progress = _compile_progress.get(job_id)
+            progress = get_progress(job_id)
             if not progress:
-                yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'Job not found'}})}\n\n"
+                # Fallback to DB for terminal states after restart
+                progress = await get_progress_from_db(job_id)
+                if not progress:
+                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'Job not found'}})}\n\n"
+                    break
+                # DB record found — emit terminal state and stop
+                status = progress.get("status", "")
+                if status in ("done", "completed"):
+                    try:
+                        from app.core.database import async_session
+                        async with async_session() as db:
+                            graph = await graph_data_service.get_knowledge_graph(db, job_id)
+                        yield f"data: {json.dumps({'event': 'graph_complete', 'data': graph}, ensure_ascii=False)}\n\n"
+                    except Exception as e:
+                        logger.error("Graph stream error: %s", e)
+                        yield f"data: {json.dumps({'event': 'error', 'data': {'message': str(e)}})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'event': 'error', 'data': progress})}\n\n"
+                yield "data: [DONE]\n\n"
                 break
 
             status = progress.get("status")

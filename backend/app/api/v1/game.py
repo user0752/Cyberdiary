@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.schemas.game import (
     AnswerResult,
     AnswerSubmit,
@@ -16,7 +16,11 @@ from app.schemas.game import (
 from app.schemas.memo import ApiResponse
 from app.services import game_service
 
-router = APIRouter(prefix="/game", tags=["game"])
+router = APIRouter(
+    prefix="/game",
+    tags=["game"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post("/generate", response_model=ApiResponse[SessionCreateResponse])

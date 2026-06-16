@@ -81,6 +81,8 @@ export interface SSEStreamOptions {
   maxRetries?: number
   /** Base delay in ms for exponential backoff (default 1000) */
   retryBaseDelay?: number
+  /** AbortSignal to cancel the stream (e.g. from AbortController) */
+  signal?: AbortSignal
 }
 
 export async function* streamMultiAgentCompile(
@@ -93,10 +95,17 @@ export async function* streamMultiAgentCompile(
   let completed = false
 
   while (retries <= maxRetries && !completed) {
+    // Check if aborted before attempting connection
+    if (options.signal?.aborted) return
+
     let response: Response
     try {
-      response = await fetch(`/api/v1/compile/jobs/${jobId}/multi-stream`)
-    } catch {
+      response = await fetch(`/api/v1/compile/jobs/${jobId}/multi-stream`, {
+        signal: options.signal,
+      })
+    } catch (err: unknown) {
+      // If aborted, exit silently
+      if (err instanceof DOMException && err.name === 'AbortError') return
       retries++
       if (retries <= maxRetries) {
         yield { event: 'progress', data: { status: 'reconnecting', progress: 0, message: `Reconnecting (${retries}/${maxRetries})...` } } as SSEEvent
@@ -118,6 +127,12 @@ export async function* streamMultiAgentCompile(
 
     try {
       while (true) {
+        // Check if aborted before reading next chunk
+        if (options.signal?.aborted) {
+          try { reader.releaseLock() } catch { /* already released */ }
+          return
+        }
+
         const { done, value } = await reader.read()
         if (done) break
 

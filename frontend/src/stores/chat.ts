@@ -10,6 +10,9 @@ export const useChatStore = defineStore('chat', () => {
   const streaming = ref(false)
   const streamContent = ref('')
 
+  /** AbortController for the current streaming request */
+  let _abortController: AbortController | null = null
+
   async function loadConversations() {
     conversations.value = await chatApi.fetchConversations()
   }
@@ -34,6 +37,14 @@ export const useChatStore = defineStore('chat', () => {
     await loadConversations()
   }
 
+  /** Cancel the current streaming request */
+  function stopStreaming() {
+    if (_abortController) {
+      _abortController.abort()
+      _abortController = null
+    }
+  }
+
   async function sendMessage(content: string, modelId: string) {
     if (!content.trim() || streaming.value) return
 
@@ -50,8 +61,13 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = true
     streamContent.value = ''
 
+    // Create a new AbortController for this request
+    _abortController = new AbortController()
+
     try {
-      const stream = chatApi.chatStream(content, modelId, currentConvId.value)
+      const stream = chatApi.chatStream(
+        content, modelId, currentConvId.value, _abortController.signal,
+      )
 
       for await (const chunk of stream) {
         if (chunk.error) {
@@ -67,7 +83,12 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
     } catch (e: any) {
-      streamContent.value += `\n\n**错误:** ${e.message || '连接失败'}`
+      // Ignore abort errors — they're intentional
+      if (e?.name === 'AbortError') {
+        // Keep whatever content was streamed so far
+      } else {
+        streamContent.value += `\n\n**错误:** ${e.message || '连接失败'}`
+      }
     }
 
     // Add assistant message to list
@@ -83,6 +104,7 @@ export const useChatStore = defineStore('chat', () => {
 
     streaming.value = false
     streamContent.value = ''
+    _abortController = null
 
     // Reload conversations to update title
     await loadConversations()
@@ -90,6 +112,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations, currentConvId, messages, streaming, streamContent,
-    loadConversations, selectConversation, newConversation, deleteConv, sendMessage,
+    loadConversations, selectConversation, newConversation, deleteConv,
+    sendMessage, stopStreaming,
   }
 })
