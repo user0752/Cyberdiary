@@ -9,13 +9,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.core.security import encrypt_api_key
 from app.models.settings import Setting
 from app.schemas.memo import ApiResponse
 from app.services import llm_service
 
-router = APIRouter(prefix="/models", tags=["models"])
+router = APIRouter(
+    prefix="/models",
+    tags=["models"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 class ModelCreate(BaseModel):

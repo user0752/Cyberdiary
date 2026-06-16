@@ -1,6 +1,8 @@
 """LiteLLM unified wrapper - routes to DeepSeek / Qwen / Ollama."""
 
+import asyncio
 import json
+import logging
 from typing import AsyncGenerator
 
 import httpx
@@ -8,8 +10,16 @@ import litellm
 
 from app.core.config import settings
 from app.core.security import decrypt_api_key
+from app.core.llm_cache import LLMCache
 
 litellm.drop_params = True  # Ignore unsupported params for different providers
+
+logger = logging.getLogger(__name__)
+
+# Global LLM cache instance (lazy-initialized on first use)
+llm_cache = LLMCache(db_path="./data/llm_cache.db", memory_size=100, ttl=86400)
+
+
 
 
 async def get_model_config_from_db(db, model_id: str) -> dict | None:
@@ -33,7 +43,11 @@ def build_litellm_kwargs(model_config: dict) -> dict:
     """Convert model config dict to litellm kwargs."""
     provider = model_config.get("provider", "deepseek")
     model_name = model_config.get("model_name", "")
-    api_key = decrypt_api_key(model_config.get("api_key_enc", ""))
+    try:
+        api_key = decrypt_api_key(model_config.get("api_key_enc", ""))
+    except Exception:
+        logger.warning("Failed to decrypt API key for model %s — using empty key", model_name)
+        api_key = ""
     endpoint = model_config.get("endpoint", "")
 
     kwargs = {"api_key": api_key}
@@ -61,13 +75,59 @@ async def chat_completion(
     model_config: dict,
     messages: list[dict],
     stream: bool = False,
+    **kwargs,
 ) -> litellm.ModelResponse | AsyncGenerator:
-    """Unified chat completion entry point."""
-    kwargs = build_litellm_kwargs(model_config)
-    kwargs["messages"] = messages
-    kwargs["stream"] = stream
+    """Unified chat completion entry point with LLM cache support.
 
-    return await litellm.acompletion(**kwargs)
+    Extra kwargs (response_format, timeout, temperature, etc.) are
+    forwarded directly to litellm.acompletion.
+    """
+    # Extract hard timeout from kwargs (default 60s), remove before forwarding
+    hard_timeout = kwargs.pop("timeout", 60.0)
+
+    # Check cache for non-streaming calls
+    if not stream:
+        prompt_snapshot = json.dumps(messages, ensure_ascii=False)
+        model_name = model_config.get("model_name", "")
+        cached = await llm_cache.get(prompt_snapshot, model_name, timeout=hard_timeout, **kwargs)
+        if cached:
+            logger.debug("LLM cache hit")
+            return litellm.ModelResponse.model_validate_json(cached)
+
+    try:
+        kw = build_litellm_kwargs(model_config)
+    except Exception as e:
+        logger.error("Failed to build litellm kwargs (bad model config): %s", e)
+        raise ValueError(f"Model configuration error: {e}") from e
+
+    kw["messages"] = messages
+    kw["stream"] = stream
+    kw["timeout"] = hard_timeout  # Pass to litellm so httpx sets TCP-level timeout
+    kw.update(kwargs)
+
+    model_name = kw.get("model", "unknown")
+
+    try:
+        result = await asyncio.wait_for(
+            litellm.acompletion(**kw),
+            timeout=hard_timeout + 10,  # 10s buffer: litellm timeout fires first
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "LLM call timed out after %.1fs to model %s",
+            hard_timeout, model_name,
+        )
+        raise asyncio.TimeoutError(
+            f"LLM request to {model_name} timed out after {hard_timeout}s"
+        )
+
+    # Cache non-streaming responses
+    if not stream and hasattr(result, "model_dump_json"):
+        prompt_snapshot = json.dumps(messages, ensure_ascii=False)
+        model_name = model_config.get("model_name", "")
+        await llm_cache.set(prompt_snapshot, model_name, result.model_dump_json(), timeout=hard_timeout, **kwargs)
+
+    return result
 
 
 async def test_model_connection(model_config: dict) -> dict:

@@ -7,12 +7,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.schemas.compile import CompileJobResponse, CompileTriggerRequest
 from app.schemas.memo import ApiResponse
 from app.services import compile_service
 
-router = APIRouter(prefix="/compile", tags=["compile"])
+router = APIRouter(
+    prefix="/compile",
+    tags=["compile"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post("/trigger", response_model=ApiResponse[CompileJobResponse])
@@ -40,14 +44,24 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/jobs/{job_id}/stream")
 async def stream_job_progress(job_id: str):
-    """SSE stream of compile job progress."""
+    """SSE stream of compile job progress.
+
+    Falls back to database when in-memory progress is unavailable
+    (e.g. after process restart), so terminal states are always visible.
+    """
     async def event_generator():
         last_progress = -1
         while True:
             progress = compile_service.get_progress(job_id)
             if progress is None:
-                # Job not found in memory — check if it's already finished
-                yield f"data: {json.dumps({'status': 'unknown', 'message': 'Job not found in memory'})}\n\n"
+                # In-memory cache miss — check database for terminal state
+                progress = await compile_service.get_progress_from_db(job_id)
+                if progress is None:
+                    yield f"data: {json.dumps({'status': 'unknown', 'message': 'Job not found'})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                # DB has a record (likely terminal state after restart)
+                yield f"data: {json.dumps(progress)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
 
@@ -58,7 +72,7 @@ async def stream_job_progress(job_id: str):
                 yield f"data: {json.dumps(progress)}\n\n"
 
             status = progress.get('status', '')
-            if status in ('done', 'failed'):
+            if status in ('done', 'failed', 'completed'):
                 yield "data: [DONE]\n\n"
                 return
 

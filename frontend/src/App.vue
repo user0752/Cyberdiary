@@ -11,7 +11,9 @@ const navItems = [
   { path: '/wiki', label: 'WIKI', icon: '02', sub: '知识库' },
   { path: '/chat', label: 'CHAT', icon: '03', sub: 'AI对话' },
   { path: '/game', label: 'GAME', icon: '04', sub: '知识闯关' },
-  { path: '/settings', label: 'SYS', icon: '05', sub: '系统设置' },
+  { path: '/compile', label: 'COMP', icon: '05', sub: '智能编译' },
+  { path: '/graph', label: 'GRAPH', icon: '06', sub: '知识图谱' },
+  { path: '/settings', label: 'SYS', icon: '07', sub: '系统设置' },
 ]
 
 onMounted(() => {
@@ -46,7 +48,7 @@ onMounted(() => {
       <nav class="sidebar-nav">
         <div class="nav-section-label">// NAVIGATION</div>
         <RouterLink
-          v-for="(item, index) in navItems"
+          v-for="item in navItems"
           :key="item.path"
           :to="item.path"
           class="nav-item"

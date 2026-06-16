@@ -3,11 +3,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.schemas.memo import ApiResponse, MemoCreate, MemoListResponse, MemoResponse, MemoUpdate
 from app.services import memo_service
 
-router = APIRouter(prefix="/memos", tags=["memos"])
+router = APIRouter(
+    prefix="/memos",
+    tags=["memos"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post("", response_model=ApiResponse[MemoResponse])

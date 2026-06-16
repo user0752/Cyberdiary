@@ -34,6 +34,16 @@ const router = createRouter({
       name: 'game',
       component: () => import('../views/GameArena.vue'),
     },
+    {
+      path: '/compile',
+      name: 'compile',
+      component: () => import('../views/MultiAgentCompileView.vue'),
+    },
+    {
+      path: '/graph',
+      name: 'graph',
+      component: () => import('../views/KnowledgeGraphView.vue'),
+    },
   ],
 })
 

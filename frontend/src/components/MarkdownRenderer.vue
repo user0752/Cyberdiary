@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/atom-one-dark.css'
 
@@ -72,7 +73,21 @@ const md = new MarkdownIt({
 
 md.use(wikiLinkPlugin)
 
-const rendered = computed(() => md.render(props.content))
+// Allow wiki-link attributes through DOMPurify
+DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+  // Preserve data-slug on wiki-link anchors
+  if (data.attrName === 'data-slug' && node.tagName === 'A') {
+    data.forceKeepAttr = true
+  }
+})
+
+const rendered = computed(() => {
+  const raw = md.render(props.content)
+  return DOMPurify.sanitize(raw, {
+    ADD_ATTR: ['data-slug'],
+    ADD_TAGS: [],
+  })
+})
 
 // Intercept wiki link clicks for client-side routing
 function handleClick(e: MouseEvent) {
