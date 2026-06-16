@@ -33,7 +33,7 @@ class ResearcherPool:
 
     async def run_all(self, state):
         if self.tracer:
-            self.tracer.phase_start(
+            await self.tracer.phase_start(
                 "ResearcherPool", "L1", "启动多视角并行研究",
                 f"{len(FOCUS_CONFIG)} 视角: 技术|实践|理论",
             )
@@ -42,10 +42,10 @@ class ResearcherPool:
         successful = [r for r in results if not isinstance(r, Exception)]
         failed = len(results) - len(successful)
         if failed > 0 and self.tracer:
-            self.tracer.warning("ResearcherPool", "L1",
-                                f"{failed}/{len(results)} Researcher 失败")
+            await self.tracer.warning("ResearcherPool", "L1",
+                                      f"{failed}/{len(results)} Researcher 失败")
         if self.tracer:
-            self.tracer.phase_end("ResearcherPool", "L1", "多视角研究完成", {
+            await self.tracer.phase_end("ResearcherPool", "L1", "多视角研究完成", {
                 "success": len(successful), "failed": failed,
                 "entities": sum(len(r.get("entities", [])) for r in successful),
                 "relations": sum(len(r.get("relations", [])) for r in successful),
@@ -63,7 +63,7 @@ class ResearcherPool:
                 memos_content="\n\n---\n\n".join(state["memos_content"]),
             )
             if self.tracer:
-                self.tracer.llm_request(
+                await self.tracer.llm_request(
                     f"Researcher({focus['name']})", "L1",
                     f"LLM 请求 -- {focus['label']}", prompt[:600],
                     state["compilation_config"]["model"],
@@ -87,7 +87,7 @@ class ResearcherPool:
             if self.tracer:
                 preview = json.dumps(result, ensure_ascii=False)[:600]
                 tokens = response.usage.total_tokens if response.usage else None
-                self.tracer.llm_response(
+                await self.tracer.llm_response(
                     f"Researcher({focus['name']})", "L1",
                     f"LLM 响应 -- {focus['label']}", preview, tokens,
                 )

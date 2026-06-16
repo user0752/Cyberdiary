@@ -135,8 +135,8 @@ export function useGraphInteraction(options: InteractionOptions) {
       const pos = getMousePos(e)
       const dt = Date.now() - clickTime
       const dist = Math.hypot(pos.x - clickPos.x, pos.y - clickPos.y)
-      if (dt < 200 && dist < 5) {
-        // Short click = select (no drag happened)
+      if (dt < 300 && dist < 8) {
+        // Short click = select (no significant drag happened)
         options.onNodeSelect(draggingNode.id)
       } else {
         // Was a drag — fire drag end

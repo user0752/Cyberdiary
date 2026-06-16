@@ -99,10 +99,38 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
 
   function selectNode(nodeId: string | null) {
     selectedNodeId.value = nodeId
-    if (nodeId && currentJobId.value) {
-      loadNodeDetail(nodeId)
+    if (nodeId) {
+      if (currentJobId.value) {
+        loadNodeDetail(nodeId)
+      } else {
+        // No jobId (aggregate graph) — build detail from local graph data
+        buildLocalDetail(nodeId)
+      }
     } else {
       selectedNodeDetail.value = null
+    }
+  }
+
+  /** Build a NodeDetail from local graph data when no jobId is available. */
+  function buildLocalDetail(nodeId: string) {
+    if (!graph.value) {
+      selectedNodeDetail.value = null
+      return
+    }
+    const node = graph.value.nodes.find((n) => n.id === nodeId)
+    if (!node) {
+      selectedNodeDetail.value = null
+      return
+    }
+    const relatedEdges = graph.value.edges.filter((e) => {
+      const src = getEdgeSourceId(e)
+      const tgt = getEdgeTargetId(e)
+      return src === nodeId || tgt === nodeId
+    })
+    selectedNodeDetail.value = {
+      ...node,
+      relatedEdges,
+      relatedWikis: [],
     }
   }
 

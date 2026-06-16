@@ -6,20 +6,39 @@ import { NODE_COLORS, EDGE_STYLES, getNodeColor, getEdgeStyle, getEdgeSourceId, 
 
 const BASE_RADIUS = 8
 const WEIGHT_SCALE = 25
-const NODE_FONT = '12px Inter, -apple-system, sans-serif'
+const NODE_FONT = '11px Inter, -apple-system, sans-serif'
+const NODE_FONT_BOLD = 'bold 12px Inter, -apple-system, sans-serif'
 const LABEL_FONT = '10px Inter, -apple-system, sans-serif'
+// Only show labels when zoomed in past this threshold
+const LABEL_ZOOM_THRESHOLD = 0.7
 
 export interface RenderState {
   nodes: GraphNode[]
   edges: GraphEdge[]
   transform: { x: number; y: number; k: number }
   hoveredNodeId: string | null
+  selectedNodeId: string | null
   highlightedNodeIds: Set<string>
   highlightedEdgeIds: Set<string>
   dimUnhighlighted: boolean
 }
 
 export function useGraphRenderer(canvas: Ref<HTMLCanvasElement | null>) {
+  // Cached nodeMap — rebuilt only when node list reference changes
+  let cachedNodeMap: Map<string, GraphNode> | null = null
+  let cachedNodesRef: GraphNode[] | null = null
+
+  function getNodeMap(nodes: GraphNode[]): Map<string, GraphNode> {
+    if (nodes !== cachedNodesRef || !cachedNodeMap) {
+      cachedNodeMap = new Map()
+      for (const node of nodes) {
+        cachedNodeMap.set(node.id, node)
+      }
+      cachedNodesRef = nodes
+    }
+    return cachedNodeMap
+  }
+
   function render(state: RenderState) {
     const cvs = canvas.value
     if (!cvs) return
@@ -47,11 +66,8 @@ export function useGraphRenderer(canvas: Ref<HTMLCanvasElement | null>) {
     ctx.translate(state.transform.x, state.transform.y)
     ctx.scale(state.transform.k, state.transform.k)
 
-    // Build node lookup map for O(1) edge rendering
-    const nodeMap = new Map<string, GraphNode>()
-    for (const node of state.nodes) {
-      nodeMap.set(node.id, node)
-    }
+    // Use cached node lookup map
+    const nodeMap = getNodeMap(state.nodes)
 
     // Draw edges first (below nodes)
     for (const edge of state.edges) {
@@ -72,16 +88,17 @@ export function useGraphRenderer(canvas: Ref<HTMLCanvasElement | null>) {
     const radius = BASE_RADIUS + (node.weight || 0.5) * WEIGHT_SCALE
     const color = getNodeColor(node.type as string)
     const isHovered = state.hoveredNodeId === node.id
+    const isSelected = state.selectedNodeId === node.id
     const isHighlighted = !state.dimUnhighlighted || state.highlightedNodeIds.has(node.id)
     const alpha = isHighlighted ? 1.0 : 0.15
 
     ctx.save()
     ctx.globalAlpha = alpha
 
-    // Glow effect for hovered node
-    if (isHovered) {
+    // Glow effect for hovered or selected node
+    if (isHovered || isSelected) {
       ctx.shadowColor = color.glow
-      ctx.shadowBlur = 20
+      ctx.shadowBlur = isSelected ? 25 : 20
     }
 
     // Composite node (double ring) for high-weight nodes
@@ -108,12 +125,23 @@ export function useGraphRenderer(canvas: Ref<HTMLCanvasElement | null>) {
       ctx.stroke()
     }
 
+    // Selected ring effect — persistent highlight
+    if (isSelected) {
+      ctx.beginPath()
+      ctx.arc(x, y, radius + 4, 0, Math.PI * 2)
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 2.5
+      ctx.setLineDash([4, 3])
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
     ctx.shadowColor = 'transparent'
     ctx.shadowBlur = 0
 
-    // Label
-    if (state.transform.k > 0.4 || isHovered) {
-      ctx.font = isHovered ? `bold ${NODE_FONT}` : NODE_FONT
+    // Label — show for selected, hovered, or when zoomed in
+    if (state.transform.k > LABEL_ZOOM_THRESHOLD || isHovered || isSelected) {
+      ctx.font = (isHovered || isSelected) ? NODE_FONT_BOLD : NODE_FONT
       ctx.fillStyle = isHighlighted ? '#f1f5f9' : '#94a3b8'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'

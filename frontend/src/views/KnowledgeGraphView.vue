@@ -52,7 +52,8 @@ onMounted(() => {
 .knowledge-graph-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   gap: 16px;
   padding: 20px 24px;
 }

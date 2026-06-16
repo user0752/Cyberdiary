@@ -13,11 +13,50 @@ class Base(DeclarativeBase):
 
 
 async def init_db():
-    """Create all tables, FTS5 indexes, and performance indexes on startup."""
+    """Create all tables, FTS5 indexes, and performance indexes on startup.
+
+    Runs Alembic migrations first (via subprocess to avoid event-loop
+    conflicts), then falls back to create_all for dev convenience.
+    FTS5 virtual tables and triggers are created separately because
+    Alembic cannot auto-detect SQLite FTS5 objects.
+    """
+    import logging
+    import os
+    import subprocess
+    import sys
+
+    _logger = logging.getLogger(__name__)
+
     # Ensure all models are imported so Base.metadata knows about them
     import app.models.multi_agent  # noqa: F401
 
-    # Step 1: Create ORM tables
+    # Step 0: Run Alembic migrations (records migration history).
+    # Use subprocess to avoid event-loop conflicts with the FastAPI lifespan.
+    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    alembic_ini = os.path.join(backend_dir, "alembic.ini")
+    if os.path.exists(alembic_ini):
+        try:
+            _logger.info("Running Alembic migrations...")
+            result = subprocess.run(
+                [sys.executable, "-m", "alembic", "-c", alembic_ini, "upgrade", "head"],
+                cwd=backend_dir,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=30,
+            )
+            if result.returncode == 0:
+                _logger.info("Alembic migrations complete.")
+            else:
+                _logger.warning(
+                    "Alembic migration returned %d: %s",
+                    result.returncode,
+                    result.stderr.strip()[-200:],
+                )
+        except Exception:
+            _logger.exception("Alembic migration failed; falling back to create_all")
+
+    # Step 1: Create ORM tables (idempotent — safe to call after migration)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

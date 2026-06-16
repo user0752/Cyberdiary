@@ -45,8 +45,11 @@ class Settings(BaseSettings):
     # Auth
     auth_mode: str = "none"  # "none" | "jwt"
 
-    # CORS
-    allowed_origins: str = "*"
+    # CORS — default restricted to the local Vite dev server. For production
+    # set ALLOWED_ORIGINS to a comma-separated list of trusted origins.
+    # NOTE: allow_credentials=True is enabled in main.py, so a wildcard "*"
+    # is both insecure and rejected by browsers; never default to "*".
+    allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"

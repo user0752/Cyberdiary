@@ -12,6 +12,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.config import settings
 from app.core.database import init_db
 
+# Configure root logger once at application level.
+# All other modules should only use logging.getLogger(__name__) — do NOT
+# call logging.getLogger().setLevel() or logging.basicConfig() elsewhere.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+)
+
 logger = logging.getLogger(__name__)
 
 # Reference to managed background compile tasks (populated during lifespan)
@@ -40,9 +48,25 @@ app = FastAPI(
 )
 
 # CORS
+# allow_credentials=True is incompatible with a wildcard origin (browsers
+# reject it) and is also a CSRF risk once cookie-based auth is enabled.
+# Resolve origins defensively: if the config is "*" but credentials are on,
+# fall back to the safe local dev set instead of building an invalid policy.
+_cors_raw = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
+if "*" in _cors_raw:
+    logger.warning(
+        "CORS: wildcard origin requested with allow_credentials=True — "
+        "this is invalid (browsers reject it) and insecure. "
+        "Falling back to local dev origins. Set ALLOWED_ORIGINS explicitly "
+        "for production."
+    )
+    _cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+else:
+    _cors_origins = _cors_raw
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins.split(",") if settings.allowed_origins != "*" else ["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

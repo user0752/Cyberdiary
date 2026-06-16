@@ -31,6 +31,27 @@ const forceGraph = useForceGraph({
 // Renderer
 const renderer = useGraphRenderer(canvasRef)
 
+// Hover throttle — only process hover at most once per animation frame
+let pendingHoverNodeId: string | null | undefined = undefined // undefined = no pending
+function throttledOnNodeHover(nodeId: string | null) {
+  if (pendingHoverNodeId === nodeId) return // already pending same value
+  pendingHoverNodeId = nodeId
+  requestRender() // will process in doRender
+}
+
+function processPendingHover() {
+  if (pendingHoverNodeId === undefined) return
+  const nodeId = pendingHoverNodeId as string | null
+  pendingHoverNodeId = undefined
+
+  store.hoverNode(nodeId)
+  if (nodeId) {
+    neighborCache = interaction.getNeighbors(nodeId)
+  } else {
+    neighborCache = null
+  }
+}
+
 // Interaction
 const interaction = useGraphInteraction({
   canvas: canvasRef,
@@ -39,17 +60,10 @@ const interaction = useGraphInteraction({
   transform,
   width,
   height,
-  onNodeHover(nodeId) {
-    store.hoverNode(nodeId)
-    if (nodeId) {
-      neighborCache = interaction.getNeighbors(nodeId)
-    } else {
-      neighborCache = null
-    }
-    requestRender()
-  },
+  onNodeHover: throttledOnNodeHover,
   onNodeSelect(nodeId) {
     store.selectNode(nodeId)
+    requestRender()
   },
   onTransformChange() {
     requestRender()
@@ -74,11 +88,13 @@ function requestRender() {
 }
 
 function doRender() {
+  processPendingHover()
   const state: RenderState = {
     nodes: store.filteredNodes,
     edges: store.filteredEdges,
     transform: transform.value,
     hoveredNodeId: store.hoveredNodeId,
+    selectedNodeId: store.selectedNodeId,
     highlightedNodeIds: neighborCache?.nodeIds ?? new Set(),
     highlightedEdgeIds: neighborCache?.edgeIds ?? new Set(),
     dimUnhighlighted: !!store.hoveredNodeId,
@@ -109,6 +125,9 @@ onUnmounted(() => {
   cancelAnimationFrame(rafId)
 })
 
+// Track whether this is the first data load
+let isFirstLoad = true
+
 // Re-init layout when data changes
 watch(
   () => [store.filteredNodes, store.filteredEdges],
@@ -122,8 +141,14 @@ watch(
         transform.value.x = width.value / 2
         transform.value.y = height.value / 2
       }
-      forceGraph.init(nodes, edges)
-      forceGraph.reheat()
+      if (isFirstLoad || !forceGraph.simulation.value) {
+        forceGraph.init(nodes, edges)
+        forceGraph.reheat()
+        isFirstLoad = false
+      } else {
+        // Incremental update — preserves positions of existing nodes
+        forceGraph.updateData(nodes, edges)
+      }
     }
   },
   { immediate: true, deep: false },
