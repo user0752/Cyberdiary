@@ -403,6 +403,13 @@ Cyberdiary/
 │   ├── Dockerfile
 │   ├── package.json
 │   └── vite.config.ts
+├── docs/                       # 项目文档
+│   ├── PRD.md                  # 产品需求文档
+│   ├── DEV.md                  # 开发架构文档
+│   ├── PHASES.md               # 开发阶段规划
+│   ├── TESTING.md              # 测试指南
+│   ├── manuals/                # 模块开发手册（多智能体、知识图谱、塔防游戏）
+│   └── reviews/                # 代码审查报告
 ├── nginx/
 │   └── nginx.conf              # Nginx 反向代理配置
 ├── docker-compose.yml
