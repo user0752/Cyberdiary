@@ -1,4 +1,5 @@
-"""Initial schema — all ORM tables as of 2025.
+# -*- coding: utf-8 -*-
+"""Initial schema -- all ORM tables as of 2025.
 
 Revision ID: 001
 Revises: None

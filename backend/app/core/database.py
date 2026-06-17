@@ -37,6 +37,8 @@ async def init_db():
     if os.path.exists(alembic_ini):
         try:
             _logger.info("Running Alembic migrations...")
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
             result = subprocess.run(
                 [sys.executable, "-m", "alembic", "-c", alembic_ini, "upgrade", "head"],
                 cwd=backend_dir,
@@ -44,6 +46,7 @@ async def init_db():
                 text=True,
                 encoding="utf-8",
                 timeout=30,
+                env=env,
             )
             if result.returncode == 0:
                 _logger.info("Alembic migrations complete.")
