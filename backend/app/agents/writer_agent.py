@@ -1,22 +1,13 @@
 """Writer Agent — converts structured knowledge into Markdown Wiki pages."""
 
 import json
-from pathlib import Path
 
 from app.services import llm_service
-
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts" / "multi_agent"
-
-
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
+from app.utils.prompts import load_prompt
 
 
 async def writer_agent(state):
-    prompt_template = _load_prompt("writer.md")
+    prompt_template = load_prompt("writer.md")
 
     # Cap memo content size to avoid enormous prompts (>64K tokens cause issues)
     memo_texts = state["memos_content"]

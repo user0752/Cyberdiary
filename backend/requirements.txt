@@ -18,3 +18,4 @@ langgraph>=0.2.0
 langgraph-checkpoint>=1.0.0
 scikit-learn>=1.5.0
 tenacity>=8.0
+redis>=5.0

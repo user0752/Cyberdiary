@@ -3,26 +3,17 @@
 import asyncio
 import json
 import logging
-from pathlib import Path
 
 from app.services import llm_service
+from app.utils.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
-
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts" / "multi_agent"
 
 FOCUS_CONFIG = [
     {"name": "technical", "label": "技术视角", "prompt_extra": "关注技术细节、架构设计、代码实现"},
     {"name": "practical", "label": "实践视角", "prompt_extra": "关注应用场景、案例、最佳实践"},
     {"name": "theoretical", "label": "理论视角", "prompt_extra": "关注基础理论、核心原理、方法论"},
 ]
-
-
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
 
 
 class ResearcherPool:
@@ -56,7 +47,7 @@ class ResearcherPool:
 
     async def run_single(self, state, focus):
         async with self.semaphore:
-            prompt_template = _load_prompt("researcher.md")
+            prompt_template = load_prompt("researcher.md")
             prompt = prompt_template.format(
                 focus=focus["label"],
                 focus_desc=focus["prompt_extra"],

@@ -6,6 +6,8 @@ import time
 import aiosqlite
 from collections import OrderedDict
 
+from app.core.redis import get_redis
+
 
 class LLMCache:
     def __init__(self, db_path="./data/llm_cache.db", memory_size=100, ttl=86400):
@@ -19,6 +21,15 @@ class LLMCache:
         # coroutines cannot (a) create duplicate aiosqlite connections or
         # (b) trigger SQLite "database is locked" by interleaved writes.
         self._lock = asyncio.Lock()
+
+    def _make_key(self, prompt, model, kw):
+        try:
+            kw_str = json.dumps(kw, sort_keys=True)
+        except (TypeError, ValueError):
+            kw_str = repr(kw)
+        return hashlib.sha256(
+            f"{prompt}|{model}|{kw_str}".encode()
+        ).hexdigest()
 
     async def _init_db(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -47,11 +58,18 @@ class LLMCache:
             await self._init_db()
 
     async def get(self, prompt, model, **kw):
+        redis = get_redis()
+        if redis is not None:
+            key = self._make_key(prompt, model, kw)
+            v = await redis.get(f"llm:cache:{key}")
+            if v is not None:
+                self.stats["disk"] += 1
+                return v
+            self.stats["miss"] += 1
+            return None
         async with self._lock:
             await self._ensure_db()
-            key = hashlib.sha256(
-                f"{prompt}|{model}|{json.dumps(kw, sort_keys=True)}".encode()
-            ).hexdigest()
+            key = self._make_key(prompt, model, kw)
             if key in self.memory:
                 v, ts = self.memory[key]
                 if time.time() - ts < self.ttl:
@@ -71,11 +89,14 @@ class LLMCache:
             return None
 
     async def set(self, prompt, model, response, **kw):
+        redis = get_redis()
+        if redis is not None:
+            key = self._make_key(prompt, model, kw)
+            await redis.set(f"llm:cache:{key}", response, ex=self.ttl)
+            return
         async with self._lock:
             await self._ensure_db()
-            key = hashlib.sha256(
-                f"{prompt}|{model}|{json.dumps(kw, sort_keys=True)}".encode()
-            ).hexdigest()
+            key = self._make_key(prompt, model, kw)
             ts = time.time()
             ph = hashlib.sha256(prompt.encode()).hexdigest()
             self.memory[key] = (response, ts)
@@ -101,3 +122,8 @@ class LLMCache:
             "memory_used": len(self.memory),
             "ttl_seconds": self.ttl,
         }
+
+    async def close(self):
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None

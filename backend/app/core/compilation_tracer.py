@@ -43,19 +43,21 @@ class CompilationTracer:
     async def _emit(self, entry: TraceEntry):
         self.entries.append(entry)
         try:
-            from app.services.compile_service import _compile_progress, _progress_lock
-            async with _progress_lock:
-                p = _compile_progress.get(self.job_id, {})
-                log = p.get("compilation_log", [])
-                log.append({
+            from app.core.progress_store import append_progress_list, update_progress
+            await append_progress_list(
+                self.job_id, "compilation_log",
+                {
                     "agent": entry.agent,
                     "layer": entry.layer,
                     "event": entry.event_type.value,
                     "title": entry.title,
-                })
-                p["compilation_log"] = log
-                p["current_agent"] = entry.agent
-                p["current_layer"] = entry.layer
+                },
+            )
+            await update_progress(
+                self.job_id,
+                current_agent=entry.agent,
+                current_layer=entry.layer,
+            )
         except Exception:
             pass
         if self._sse_cb:

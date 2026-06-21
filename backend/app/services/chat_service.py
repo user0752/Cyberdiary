@@ -167,40 +167,23 @@ async def chat_stream(
                 conv.title = message[:30] + ("..." if len(message) > 30 else "")
                 conv.updated_at = datetime.now(timezone.utc)
 
-    # Read-only: get model config and build context using the request session
-    model_config = await llm_service.get_model_config_from_db(db, model_id)
-    if not model_config:
-        yield f"data: {json.dumps({'error': 'Model not configured'})}\n\n"
+    # Build messages array using build_chat_context (unified logic)
+    try:
+        messages, _ = await build_chat_context(db, conv_id, message)
+    except ValueError as e:
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield "data: [DONE]\n\n"
         return
-
-    # Build messages array
-    history = await get_messages(db, conv_id)
-    history_msgs = [{"role": m.role, "content": m.content} for m in history if m.role != "user" or m.content != message]
-
-    wiki_pages = await wiki_service.get_wiki_summaries(db, limit=50)
-    if wiki_pages:
-        wiki_context = "\n".join([
-            f"- **{p.title}** ({p.wiki_type}): {p.summary}"
-            for p in wiki_pages
-        ])
-    else:
-        wiki_context = "(知识库暂无内容)"
-    model_display_name = model_config.get("display_name") or model_config.get("model_name", "unknown")
-    system_prompt = (
-        f"你是用户的个人知识助手，代号「赛博龙虾」。你当前运行的底层模型是：{model_display_name}。"
-        "如果用户询问你是什么模型，请如实告知，不要猜测。\n\n"
-        f"## 用户的知识库摘要\n{wiki_context}\n\n"
-        "回答时优先引用知识库中的内容。"
-    )
-
-    messages = [{"role": "system", "content": system_prompt}] + history_msgs[:-1] + [
-        {"role": "user", "content": message}
-    ]
 
     # Stream
     full_response = ""
     try:
+        model_config = await llm_service.get_model_config_from_db(db, model_id)
+        if not model_config:
+            yield f"data: {json.dumps({'error': 'Model not configured'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
         response = await llm_service.chat_completion(model_config, messages, stream=True)
         async for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:

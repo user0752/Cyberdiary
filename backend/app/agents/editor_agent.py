@@ -1,17 +1,7 @@
 """Editor Agent — revises Wiki based on reviewer feedback."""
 
-from pathlib import Path
-
 from app.services import llm_service
-
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts" / "multi_agent"
-
-
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
+from app.utils.prompts import load_prompt
 
 
 async def editor_agent(state):
@@ -21,7 +11,7 @@ async def editor_agent(state):
         state["review_passed"] = True
         return state
 
-    prompt_template = _load_prompt("editor.md")
+    prompt_template = load_prompt("editor.md")
     prompt = prompt_template.format(
         wiki_content=state.get("wiki_revised", state["wiki_draft"]),
         feedback=state["arbitration_result"].get("summary", ""),

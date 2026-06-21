@@ -2,6 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { fetchMemos } from '../api/memo'
 import {
+  triggerSingleCompile,
+  streamSingleCompile,
   triggerMultiAgentCompile,
   streamMultiAgentCompile,
   submitHumanReview,
@@ -102,15 +104,30 @@ async function startCompile() {
   endTime.value = null
 
   try {
-    const job = await triggerMultiAgentCompile(
-      Array.from(selectedMemoIds.value),
-      { ...config.value, model: modelId.value },
-    )
-    jobId.value = job.job_id
+    if (compileMode.value === 'single') {
+      // Single-agent compile
+      const job = await triggerSingleCompile(
+        Array.from(selectedMemoIds.value),
+        modelId.value,
+      )
+      jobId.value = job.id
 
-    const stream = streamMultiAgentCompile(job.job_id)
-    for await (const event of stream) {
-      handleSSEEvent(event)
+      const stream = streamSingleCompile(job.id)
+      for await (const event of stream) {
+        handleSSEEvent(event)
+      }
+    } else {
+      // Multi-agent compile
+      const job = await triggerMultiAgentCompile(
+        Array.from(selectedMemoIds.value),
+        { ...config.value, model: modelId.value },
+      )
+      jobId.value = job.job_id
+
+      const stream = streamMultiAgentCompile(job.job_id)
+      for await (const event of stream) {
+        handleSSEEvent(event)
+      }
     }
   } catch (e: any) {
     errorMsg.value = e.message || 'Compile failed'
@@ -312,7 +329,7 @@ onMounted(async () => {
         </section>
 
         <!-- Config -->
-        <section v-if="compileMode === 'multi'" class="panel-section">
+        <section class="panel-section">
           <div class="section-header">
             <span class="section-label">// CONFIG</span>
           </div>
@@ -332,35 +349,37 @@ onMounted(async () => {
               </select>
             </div>
 
-            <div class="config-item">
-              <label>Pass Threshold</label>
-              <input
-                v-model.number="config.pass_threshold"
-                type="number"
-                min="1"
-                max="10"
-                step="0.5"
-                class="config-input"
-              />
-            </div>
+            <template v-if="compileMode === 'multi'">
+              <div class="config-item">
+                <label>Pass Threshold</label>
+                <input
+                  v-model.number="config.pass_threshold"
+                  type="number"
+                  min="1"
+                  max="10"
+                  step="0.5"
+                  class="config-input"
+                />
+              </div>
 
-            <div class="config-item">
-              <label>Max Revisions</label>
-              <input
-                v-model.number="config.max_revisions"
-                type="number"
-                min="0"
-                max="10"
-                class="config-input"
-              />
-            </div>
+              <div class="config-item">
+                <label>Max Revisions</label>
+                <input
+                  v-model.number="config.max_revisions"
+                  type="number"
+                  min="0"
+                  max="10"
+                  class="config-input"
+                />
+              </div>
 
-            <div class="config-item checkbox-item">
-              <label>
-                <input v-model="config.enable_human_review" type="checkbox" />
-                Human Review
-              </label>
-            </div>
+              <div class="config-item checkbox-item">
+                <label>
+                  <input v-model="config.enable_human_review" type="checkbox" />
+                  Human Review
+                </label>
+              </div>
+            </template>
           </div>
         </section>
 
@@ -375,7 +394,7 @@ onMounted(async () => {
               <path d="M10 2l8 4-8 4-8-4 8-4zm0 8l8 4-8 4-8-4 8-4zm0 8l8 4-8 4-8-4 8-4z"/>
             </svg>
             <div v-else class="btn-spinner"></div>
-            {{ isCompiling ? 'COMPILING...' : `START ${compileMode === 'multi' ? 'MULTI-AGENT' : ''} COMPILE` }}
+            {{ isCompiling ? 'COMPILING...' : `START ${compileMode === 'multi' ? 'MULTI-AGENT ' : ''}COMPILE` }}
           </button>
         </div>
       </aside>

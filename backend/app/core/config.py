@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     # Auth
     auth_mode: str = "none"  # "none" | "jwt"
 
+    # Encryption key for API keys (AES-256-GCM). If empty, falls back to
+    # secret_key for backward compatibility. Set a separate ENCRYPTION_KEY
+    # so that a leaked SECRET_KEY (JWT) cannot decrypt stored API keys.
+    encryption_key: str = ""
+
+    # Redis (optional — enables multi-instance deployment)
+    # If empty, in-memory state is used (single-process only)
+    redis_url: str = ""
+
     # CORS — default restricted to the local Vite dev server. For production
     # set ALLOWED_ORIGINS to a comma-separated list of trusted origins.
     # NOTE: allow_credentials=True is enabled in main.py, so a wildcard "*"

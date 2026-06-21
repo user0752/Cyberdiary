@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -31,6 +32,14 @@ async def lifespan(app: FastAPI):
     """Startup / shutdown events with graceful task cleanup."""
     await init_db()
     app.state.background_tasks = _background_tasks
+
+    if settings.auth_mode == "none":
+        logger.warning(
+            "AUTH_MODE=none — authentication is DISABLED. "
+            "Do NOT expose this service to a public network. "
+            "Set AUTH_MODE=jwt and configure a strong SECRET_KEY for production."
+        )
+
     yield
     # Graceful shutdown: cancel pending background tasks
     for task in list(_background_tasks):
@@ -39,6 +48,15 @@ async def lifespan(app: FastAPI):
     if _background_tasks:
         await asyncio.gather(*_background_tasks, return_exceptions=True)
         _background_tasks.clear()
+
+    # Close Redis and LLM cache connections
+    from app.core.redis import close_redis
+    from app.core.llm_cache import LLMCache
+    await close_redis()
+    # llm_cache is a global in llm_service; close its SQLite connection if fallback mode
+    from app.services.llm_service import llm_cache as _llm_cache_instance
+    if isinstance(_llm_cache_instance, LLMCache):
+        await _llm_cache_instance.close()
 
 
 app = FastAPI(
@@ -64,6 +82,14 @@ if "*" in _cors_raw:
 else:
     _cors_origins = _cors_raw
 
+# Warn if default dev origins are used with JWT auth (production-like setup)
+_DEFAULT_DEV_ORIGINS = {"http://localhost:5173", "http://127.0.0.1:5173"}
+if settings.auth_mode == "jwt" and set(_cors_origins) == _DEFAULT_DEV_ORIGINS:
+    logger.warning(
+        "CORS: using default local dev origins with AUTH_MODE=jwt. "
+        "Set ALLOWED_ORIGINS to your production frontend URL(s) for deployment."
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -86,11 +112,12 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Catch-all for unexpected errors. Logs full traceback, returns generic message."""
-    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    """Catch-all for unexpected errors. Logs full traceback with trace_id, returns generic message."""
+    trace_id = uuid.uuid4().hex[:12]
+    logger.exception("Unhandled exception on %s %s [trace_id=%s]", request.method, request.url.path, trace_id)
     return JSONResponse(
         status_code=500,
-        content={"code": -1, "message": "Internal server error", "data": None},
+        content={"code": -1, "message": "Internal server error", "data": {"trace_id": trace_id}},
     )
 
 

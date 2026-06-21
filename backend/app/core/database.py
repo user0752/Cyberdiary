@@ -28,7 +28,14 @@ async def init_db():
     _logger = logging.getLogger(__name__)
 
     # Ensure all models are imported so Base.metadata knows about them
+    import app.models.memo  # noqa: F401
+    import app.models.wiki  # noqa: F401
+    import app.models.chat  # noqa: F401
+    import app.models.compile_job  # noqa: F401
     import app.models.multi_agent  # noqa: F401
+    import app.models.game  # noqa: F401
+    import app.models.settings  # noqa: F401
+    import app.models.user  # noqa: F401
 
     # Step 0: Run Alembic migrations (records migration history).
     # Use subprocess to avoid event-loop conflicts with the FastAPI lifespan.

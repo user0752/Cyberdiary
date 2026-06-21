@@ -52,7 +52,7 @@ async def stream_job_progress(job_id: str):
     async def event_generator():
         last_progress = -1
         while True:
-            progress = compile_service.get_progress(job_id)
+            progress = await compile_service.get_progress(job_id)
             if progress is None:
                 # In-memory cache miss — check database for terminal state
                 progress = await compile_service.get_progress_from_db(job_id)

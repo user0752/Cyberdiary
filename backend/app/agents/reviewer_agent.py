@@ -2,24 +2,15 @@
 
 import json
 import logging
-from pathlib import Path
 
 from app.services import llm_service
+from app.utils.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts" / "multi_agent"
-
-
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
-
 
 async def reviewer_accuracy_agent(state):
-    prompt_template = _load_prompt("reviewer_accuracy.md")
+    prompt_template = load_prompt("reviewer_accuracy.md")
     prompt = prompt_template.format(
         memos_content="\n\n".join(state["memos_content"]),
         wiki_content=state.get("wiki_revised", state["wiki_draft"]),
@@ -46,7 +37,7 @@ async def reviewer_accuracy_agent(state):
 
 
 async def reviewer_readability_agent(state):
-    prompt_template = _load_prompt("reviewer_readability.md")
+    prompt_template = load_prompt("reviewer_readability.md")
     prompt = prompt_template.format(
         wiki_content=state.get("wiki_revised", state["wiki_draft"]),
     )

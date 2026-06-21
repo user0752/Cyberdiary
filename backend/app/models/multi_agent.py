@@ -1,7 +1,7 @@
 """Multi-agent compilation models."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Float, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
@@ -15,6 +15,7 @@ class HumanReviewTask(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     job_id: Mapped[str] = mapped_column(String(36), ForeignKey("compile_jobs.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")
+    decision: Mapped[str | None] = mapped_column(String(20), nullable=True)
     final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     reviews: Mapped[str | None] = mapped_column(Text, nullable=True)
     arbitration: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -22,7 +23,7 @@ class HumanReviewTask(Base):
     user_edited_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     revised_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     final_content: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -33,7 +34,7 @@ class CompilationCache(Base):
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     wiki_content: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -48,7 +49,7 @@ class ABTestRecord(Base):
     evaluation_scores: Mapped[str | None] = mapped_column(Text, nullable=True)
     compilation_time: Mapped[float | None] = mapped_column(Float, nullable=True)
     user_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class SemanticLink(Base):
@@ -60,4 +61,4 @@ class SemanticLink(Base):
     relation_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

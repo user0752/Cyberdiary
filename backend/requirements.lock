@@ -1,0 +1,27 @@
+# requirements.lock — exact versions of direct dependencies.
+# Regenerate after pip install -r requirements.txt:
+#   pip freeze > requirements.lock  (in a clean venv)
+# Install: pip install -r requirements.lock
+#
+# NOTE: alembic and redis are in requirements.txt but not installed
+# in the current environment. Install them and regenerate this file.
+
+aiosqlite==0.22.1
+apscheduler==3.11.2
+bcrypt==5.0.0
+cryptography==46.0.6
+fastapi==0.135.3
+httpx==0.28.1
+langgraph==1.2.4
+langgraph-checkpoint==4.1.1
+litellm==1.85.1
+pydantic==2.12.5
+pydantic-settings==2.13.1
+python-jose==3.5.0
+python-multipart==0.0.24
+python-slugify==8.0.4
+pyyaml==6.0.3
+scikit-learn==1.8.0
+sqlalchemy==2.0.48
+tenacity==9.1.4
+uvicorn==0.42.0

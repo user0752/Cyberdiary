@@ -64,6 +64,118 @@ export interface SemanticLink {
 
 // --- API ---
 
+export async function triggerSingleCompile(
+  memoIds: string[],
+  modelId: string,
+): Promise<{ id: string; status: string }> {
+  const { data } = await api.post('/compile/trigger', {
+    memo_ids: memoIds,
+    model_id: modelId,
+  })
+  if (data.code !== 0) throw new Error(data.message || 'Compile trigger failed')
+  return data.data
+}
+
+export async function* streamSingleCompile(
+  jobId: string,
+  options: SSEStreamOptions = {},
+): AsyncGenerator<SSEEvent, void> {
+  const maxRetries = options.maxRetries ?? 3
+  const baseDelay = options.retryBaseDelay ?? 1000
+  let retries = 0
+  let completed = false
+
+  while (retries <= maxRetries && !completed) {
+    if (options.signal?.aborted) return
+
+    let response: Response
+    try {
+      response = await fetch(`/api/v1/compile/jobs/${jobId}/stream`, {
+        signal: options.signal,
+      })
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      retries++
+      if (retries <= maxRetries) {
+        yield { event: 'progress', data: { status: 'reconnecting', progress: 0, message: `Reconnecting (${retries}/${maxRetries})...` } } as SSEEvent
+        await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, retries - 1)))
+        continue
+      }
+      yield { event: 'error', data: { message: 'Connection failed after retries' } } as SSEEvent
+      return
+    }
+
+    if (!response.ok) {
+      yield { event: 'error', data: { message: `HTTP ${response.status}` } } as SSEEvent
+      return
+    }
+
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    try {
+      while (true) {
+        if (options.signal?.aborted) {
+          try { reader.releaseLock() } catch { /* already released */ }
+          return
+        }
+
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const content = line.slice(6)
+            if (content === '[DONE]') {
+              completed = true
+              return
+            }
+            try {
+              const progress = JSON.parse(content) as CompileProgress
+              retries = 0
+              const status = progress.status || ''
+              if (status === 'done' || status === 'completed') {
+                yield { event: 'complete', data: { message: progress.message || 'Done' } } as SSEEvent
+                completed = true
+                return
+              } else if (status === 'failed') {
+                yield { event: 'error', data: { message: progress.message || 'Compile failed' } } as SSEEvent
+                completed = true
+                return
+              } else {
+                yield { event: 'progress', data: progress } as SSEEvent
+              }
+            } catch {
+              // skip malformed events
+            }
+          }
+        }
+      }
+    } catch {
+      // Stream interrupted — will retry
+    } finally {
+      try { reader.releaseLock() } catch { /* already released */ }
+    }
+
+    if (!completed) {
+      retries++
+      if (retries <= maxRetries) {
+        yield { event: 'progress', data: { status: 'reconnecting', progress: 0, message: `Reconnecting (${retries}/${maxRetries})...` } } as SSEEvent
+        await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, retries - 1)))
+      }
+    }
+  }
+
+  if (!completed) {
+    yield { event: 'error', data: { message: 'Max retries exceeded' } } as SSEEvent
+  }
+}
+
 export async function triggerMultiAgentCompile(
   memoIds: string[],
   config: CompileConfig,
