@@ -14,6 +14,10 @@
           <span class="stat-value">{{ store.stats.totalEdges }}</span>
           <span class="stat-label">关系</span>
         </div>
+        <div class="stat">
+          <span class="stat-value">{{ store.graph.meta.totalJobs || 0 }}</span>
+          <span class="stat-label">编译</span>
+        </div>
       </div>
       <button class="refresh-btn" @click="refresh" :disabled="store.loading">
         <svg viewBox="0 0 20 20" fill="currentColor">
