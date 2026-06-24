@@ -352,6 +352,29 @@ async def record_compile_failure(job_id: str, error_msg: str) -> None:
         logger.exception("Failed to record compile job failure for %s", job_id)
 
 
+async def _resolve_compile_model(db: AsyncSession, model_id: str) -> dict:
+    """Fetch and validate the LLM model config for compilation.  Raises
+    ValueError if the model is not configured."""
+    model_config = await llm_service.get_model_config_from_db(db, model_id)
+    if not model_config:
+        raise ValueError(f'Model {model_id} not configured')
+    return model_config
+
+
+def _build_compile_messages(memos: list[Memo]) -> list[dict]:
+    """Build the system + user messages for the compilation LLM call."""
+    memo_content = '\n\n---\n\n'.join([
+        f'### Memo {i+1}\n{m.content}' for i, m in enumerate(memos)
+    ])
+    system_prompt = (PROMPTS_DIR / 'compile_system.md').read_text(encoding='utf-8')
+    user_template = (PROMPTS_DIR / 'compile_user.md').read_text(encoding='utf-8')
+    user_prompt = user_template.format(memo_count=len(memos), memo_content=memo_content)
+    return [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': user_prompt},
+    ]
+
+
 async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
     """Background compile task. Uses its own DB session.
 
@@ -359,15 +382,12 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
     are performed within a single transaction so that a failure at any
     point rolls back *all* partial writes, preventing data inconsistency.
     """
-    await init_progress(
-        job_id,
-        status='running', progress=0, message='Starting...',
-    )
+    await init_progress(job_id, status='running', progress=0, message='Starting...')
 
     try:
         async with async_session() as db:
             async with db.begin():
-                # Update job status
+                # 1) Load & validate job
                 job = (await db.execute(
                     select(CompileJob).where(CompileJob.id == job_id)
                 )).scalar_one_or_none()
@@ -376,9 +396,8 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
                 job.status = 'running'
                 job.started_at = datetime.now(timezone.utc)
 
-                # Load memos
+                # 2) Load memos
                 memos, actual_memo_ids = await _load_compile_memos(db, job_id, memo_ids)
-
                 if not memos:
                     await update_progress(job_id, status='done', progress=100, message='No uncompiled memos found')
                     job.status = 'done'
@@ -388,33 +407,16 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
 
                 await update_progress(job_id, message=f'Compiling {len(memos)} memos...', progress=10)
 
-                # Build prompt
-                memo_content = '\n\n---\n\n'.join([
-                    f'### Memo {i+1}\n{m.content}' for i, m in enumerate(memos)
-                ])
-                system_prompt = (PROMPTS_DIR / 'compile_system.md').read_text(encoding='utf-8')
-                user_template = (PROMPTS_DIR / 'compile_user.md').read_text(encoding='utf-8')
-                user_prompt = user_template.format(memo_count=len(memos), memo_content=memo_content)
+                # 3) Build prompt & resolve model
+                messages = _build_compile_messages(memos)
+                model_config = await _resolve_compile_model(db, model_id)
 
-                # Get model config
-                model_config = await llm_service.get_model_config_from_db(db, model_id)
-                if not model_config:
-                    raise ValueError(f'Model {model_id} not configured')
-
+                # 4) Call LLM + parse results
                 await update_progress(job_id, message='Calling LLM...', progress=20)
-
-                # Call LLM with streaming
-                messages = [
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': user_prompt},
-                ]
                 full_output = await _stream_compile_llm(job_id, model_config, messages)
 
                 await update_progress(job_id, progress=75, message='Parsing output...')
-
-                # Parse output into wiki pages
                 pages = parse_compile_output(full_output, actual_memo_ids)
-
                 if not pages:
                     preview = full_output[:100].replace('\n', '\\n') if full_output else '(empty)'
                     raise ValueError(
@@ -422,17 +424,15 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
                         f'Raw output preview (first 100 chars): {preview}'
                     )
 
+                # 5) Persist results
                 await update_progress(job_id, message=f'Saving {len(pages)} wiki pages...', progress=80)
-
-                # Save wiki pages, links, and mark memos as compiled
                 await save_compile_results(db, pages, actual_memo_ids)
 
-                # Update job
+                # 6) Finalize job
                 summary = f'Compiled {len(memos)} memos into {len(pages)} wiki pages'
                 job.status = 'done'
                 job.result_summary = summary
                 job.finished_at = datetime.now(timezone.utc)
-
                 await update_progress(job_id, status='done', progress=100, message=summary)
             # db.begin() auto-commits on success, auto-rolls back on exception
 

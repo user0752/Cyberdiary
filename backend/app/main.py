@@ -40,6 +40,14 @@ async def lifespan(app: FastAPI):
             "Set AUTH_MODE=jwt and configure a strong SECRET_KEY for production."
         )
 
+    # Warn if ENCRYPTION_KEY is not set separately (S1 mitigation)
+    if not settings.encryption_key:
+        logger.warning(
+            "ENCRYPTION_KEY is not set — API keys will be encrypted with "
+            "a key derived from SECRET_KEY. For production, set a separate "
+            "ENCRYPTION_KEY so that a leaked JWT secret cannot decrypt stored API keys."
+        )
+
     yield
     # Graceful shutdown: cancel pending background tasks
     for task in list(_background_tasks):
@@ -88,6 +96,14 @@ if settings.auth_mode == "jwt" and set(_cors_origins) == _DEFAULT_DEV_ORIGINS:
     logger.warning(
         "CORS: using default local dev origins with AUTH_MODE=jwt. "
         "Set ALLOWED_ORIGINS to your production frontend URL(s) for deployment."
+    )
+
+# Warn if Redis is configured (implies production intent) but CORS still on dev defaults
+if settings.redis_url and set(_cors_origins) == _DEFAULT_DEV_ORIGINS:
+    logger.warning(
+        "CORS: Redis is configured (multi-instance mode) but ALLOWED_ORIGINS "
+        "still defaults to local dev origins. Set ALLOWED_ORIGINS to your "
+        "production frontend URL(s) for deployment."
     )
 
 app.add_middleware(

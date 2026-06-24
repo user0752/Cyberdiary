@@ -42,8 +42,10 @@ class Settings(BaseSettings):
             )
         return v
 
-    # Auth
-    auth_mode: str = "none"  # "none" | "jwt"
+    # Auth — default to JWT for security. Set AUTH_MODE=none explicitly for
+    # local single-user dev if you do not need authentication. AUTH_MODE=none
+    # will trigger a loud startup warning to prevent accidental public exposure.
+    auth_mode: str = "jwt"  # "none" | "jwt"
 
     # Encryption key for API keys (AES-256-GCM). If empty, falls back to
     # secret_key for backward compatibility. Set a separate ENCRYPTION_KEY
