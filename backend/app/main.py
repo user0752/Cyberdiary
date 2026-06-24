@@ -143,6 +143,22 @@ async def health_check():
     return {"code": 0, "message": "ok", "data": {"status": "healthy"}}
 
 
+# Public config endpoint — exposes non-sensitive settings to the frontend.
+# Used by the SPA to decide whether to show the login page (jwt) or skip
+# auth entirely (none). No secrets are exposed here.
+@app.get("/api/config")
+async def public_config():
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "auth_mode": settings.auth_mode,
+            "app_name": settings.app_name,
+            "app_version": settings.app_version,
+        },
+    }
+
+
 # --- Register API Routers ---
 # Each router is registered as its module is implemented
 
@@ -177,3 +193,7 @@ app.include_router(multi_agent_compile_router, prefix="/api/v1")
 # Knowledge Graph
 from app.api.v1.knowledge_graph import router as knowledge_graph_router
 app.include_router(knowledge_graph_router, prefix="/api/v1")
+
+# Auth (register/login — no auth dependency itself so users can sign up)
+from app.api.v1.auth import router as auth_router
+app.include_router(auth_router, prefix="/api/v1")

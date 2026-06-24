@@ -118,9 +118,13 @@ async def async_client():
 
     app.dependency_overrides = {}  # Clear any existing overrides
 
-    # Patch all module-level async_session references to use the test session
+    # Patch all module-level async_session references to use the test session.
+    # NOTE: app.api.deps imports async_session at module load, so we must patch
+    # it there too — otherwise get_db() uses the original session bound to the
+    # real DATABASE_URL, causing "no such table" errors in integration tests.
     patches = [
         patch("app.core.database.async_session", test_session),
+        patch("app.api.deps.async_session", test_session),
         patch("app.services.human_review_manager.async_session", test_session),
         patch("app.api.v1.multi_agent_compile.async_session", test_session),
         patch("app.agents.linker_agent.async_session", test_session),

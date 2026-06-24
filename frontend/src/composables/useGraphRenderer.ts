@@ -2,7 +2,7 @@
 
 import type { Ref } from 'vue'
 import type { GraphNode, GraphEdge } from '@/types/graph'
-import { NODE_COLORS, EDGE_STYLES, getNodeColor, getEdgeStyle, getEdgeSourceId, getEdgeTargetId } from '@/types/graph'
+import { getNodeColor, getEdgeStyle, getEdgeSourceId, getEdgeTargetId } from '@/types/graph'
 
 const BASE_RADIUS = 8
 const WEIGHT_SCALE = 25

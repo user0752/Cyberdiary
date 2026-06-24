@@ -16,7 +16,7 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
         configure: (proxy) => {
-          proxy.on('error', (err) => {
+          proxy.on('error', () => {
             // Suppress ECONNREFUSED noise when backend is not yet ready
           });
         },

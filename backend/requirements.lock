@@ -3,10 +3,12 @@
 #   pip freeze > requirements.lock  (in a clean venv)
 # Install: pip install -r requirements.lock
 #
-# NOTE: alembic and redis are in requirements.txt but not installed
-# in the current environment. Install them and regenerate this file.
+# This file pins all direct dependencies listed in requirements.txt to
+# known-good versions. Transitive dependencies are not pinned here —
+# use `pip freeze` in a fully installed environment for a complete lock.
 
 aiosqlite==0.22.1
+alembic==1.16.4
 apscheduler==3.11.2
 bcrypt==5.0.0
 cryptography==46.0.6
@@ -21,6 +23,7 @@ python-jose==3.5.0
 python-multipart==0.0.24
 python-slugify==8.0.4
 pyyaml==6.0.3
+redis==5.2.1
 scikit-learn==1.8.0
 sqlalchemy==2.0.48
 tenacity==9.1.4

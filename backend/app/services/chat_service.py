@@ -132,10 +132,10 @@ async def chat_stream(
 ) -> AsyncGenerator[str, None]:
     """Stream chat response via SSE. Yields content chunks.
 
-    Uses an independent DB session for message persistence so that the
-    request-level session is not held in a dirty state for the entire
-    SSE lifetime. This prevents data loss when the client disconnects
-    mid-stream.
+    Uses independent DB sessions for message persistence and context loading
+    so the request-level session is NOT held open for the entire SSE lifetime
+    (which can be 60-90s during LLM streaming). The request session is only
+    used briefly to load context, then closed before streaming begins.
     """
     # Create conversation and save user message in an independent session
     async with async_session() as msg_db:
@@ -167,23 +167,27 @@ async def chat_stream(
                 conv.title = message[:30] + ("..." if len(message) > 30 else "")
                 conv.updated_at = datetime.now(timezone.utc)
 
-    # Build messages array using build_chat_context (unified logic)
+    # Build messages array using build_chat_context in an independent session.
+    # This ensures the request-level `db` session is not held during LLM streaming.
     try:
-        messages, _ = await build_chat_context(db, conv_id, message)
+        async with async_session() as ctx_db:
+            messages, _ = await build_chat_context(ctx_db, conv_id, message)
+        # Also resolve model config in the same short-lived session
+        async with async_session() as cfg_db:
+            model_config = await llm_service.get_model_config_from_db(cfg_db, model_id)
     except ValueError as e:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield "data: [DONE]\n\n"
         return
 
-    # Stream
+    if not model_config:
+        yield f"data: {json.dumps({'error': 'Model not configured'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    # Stream — no DB session held during this long-running loop
     full_response = ""
     try:
-        model_config = await llm_service.get_model_config_from_db(db, model_id)
-        if not model_config:
-            yield f"data: {json.dumps({'error': 'Model not configured'})}\n\n"
-            yield "data: [DONE]\n\n"
-            return
-
         response = await llm_service.chat_completion(model_config, messages, stream=True)
         async for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:

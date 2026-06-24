@@ -177,7 +177,7 @@ export function useGraphInteraction(options: InteractionOptions) {
     options.onTransformChange()
   }
 
-  function onDblClick(e: MouseEvent) {
+  function onDblClick() {
     const t = options.transform.value
     t.x = options.width.value / 2
     t.y = options.height.value / 2
@@ -271,7 +271,7 @@ export function useGraphInteraction(options: InteractionOptions) {
     }
   }
 
-  function onTouchEnd(e: TouchEvent) {
+  function onTouchEnd() {
     // Tap-to-select for touch (BUG 10 fix)
     if (draggingNode) {
       const dt = Date.now() - clickTime

@@ -104,7 +104,7 @@ onUnmounted(() => {
 
 // Watch BOTH nodes and edges — only after mount
 watch(
-  () => [store.filteredNodes, store.filteredEdges],
+  () => [store.filteredNodes, store.filteredEdges] as [typeof store.filteredNodes, typeof store.filteredEdges],
   ([nodes, edges]) => {
     if (mounted && nodes.length > 0 && webglAvailable.value) {
       threeGraph.buildGraph(nodes, edges)

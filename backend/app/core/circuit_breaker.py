@@ -14,6 +14,16 @@ class CircuitBreakerOpenError(Exception):
 
 
 class CircuitBreaker:
+    """Per-process circuit breaker for agent LLM calls.
+
+    NOTE: State is held in-process only. In multi-instance deployments
+    (gunicorn -w N, or horizontal scaling), each worker maintains its
+    own breaker state — a breaker OPEN on worker A does not prevent
+    worker B from calling the same agent. For cross-instance coordination,
+    migrate the failure counter and OPEN timestamp to Redis. This is
+    acceptable for the current single-process deployment model.
+    """
+
     def __init__(self, name, failure_threshold=3, recovery_timeout=60.0):
         self.name = name
         self.failure_threshold = failure_threshold

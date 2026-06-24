@@ -2,7 +2,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { KnowledgeGraph, GraphNode, GraphEdge, NodeDetail } from '@/types/graph'
+import type { KnowledgeGraph, GraphNode, NodeDetail } from '@/types/graph'
 import { getEdgeSourceId, getEdgeTargetId } from '@/types/graph'
 import {
   fetchKnowledgeGraph,

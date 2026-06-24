@@ -49,7 +49,7 @@ async def _evaluate_page(slug: str, content: str, source_texts: list[str]):
         from app.services.evaluation_service import evaluate_wiki_async
         await evaluate_wiki_async(slug, content, source_texts)
     except Exception:
-        pass
+        logger.exception("Background wiki evaluation failed for slug=%s", slug)
 
 
 router = APIRouter(

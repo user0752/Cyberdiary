@@ -24,7 +24,6 @@ export function useThreeGraph(options: ThreeGraphOptions) {
   const renderer = shallowRef<THREE.WebGLRenderer | null>(null)
   const controls = shallowRef<OrbitControls | null>(null)
   let animFrameId = 0
-  let autoRotate = false
 
   // On-demand rendering
   let needsRender = false
@@ -452,9 +451,10 @@ export function useThreeGraph(options: ThreeGraphOptions) {
       const t = Math.min(elapsed / duration, 1)
       const ease = 1 - Math.pow(1 - t, 3)
 
-      cam.position.lerpVectors(startPos, newPos, ease)
-      ctrl.target.lerpVectors(startTarget, target, ease)
-      ctrl.update()
+      // cam/ctrl null-checked above; assert non-null in this closure
+      cam!.position.lerpVectors(startPos, newPos, ease)
+      ctrl!.target.lerpVectors(startTarget, target, ease)
+      ctrl!.update()
       scheduleRender()
 
       if (t < 1) requestAnimationFrame(animateFocus)
@@ -463,7 +463,6 @@ export function useThreeGraph(options: ThreeGraphOptions) {
   }
 
   function setAutoRotate(value: boolean) {
-    autoRotate = value
     if (controls.value) {
       controls.value.autoRotate = value
       controls.value.autoRotateSpeed = 1.0
