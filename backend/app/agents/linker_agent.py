@@ -2,23 +2,14 @@
 
 import json
 import logging
-from pathlib import Path
 
 from sqlalchemy import select
 
 from app.core.database import async_session
 from app.services import llm_service
+from app.utils.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
-
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts" / "multi_agent"
-
-
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
 
 
 async def _get_existing_wikis_summary(state) -> list[dict]:
@@ -42,7 +33,7 @@ async def linker_agent(state):
         state["suggested_links"] = []
         return state
 
-    prompt_template = _load_prompt("linker.md")
+    prompt_template = load_prompt("linker.md")
     prompt = prompt_template.format(
         current_wiki=state.get("wiki_revised", state["wiki_draft"]),
         existing_wikis=json.dumps(existing, ensure_ascii=False),

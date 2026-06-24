@@ -132,10 +132,10 @@ async def chat_stream(
 ) -> AsyncGenerator[str, None]:
     """Stream chat response via SSE. Yields content chunks.
 
-    Uses an independent DB session for message persistence so that the
-    request-level session is not held in a dirty state for the entire
-    SSE lifetime. This prevents data loss when the client disconnects
-    mid-stream.
+    Uses independent DB sessions for message persistence and context loading
+    so the request-level session is NOT held open for the entire SSE lifetime
+    (which can be 60-90s during LLM streaming). The request session is only
+    used briefly to load context, then closed before streaming begins.
     """
     # Create conversation and save user message in an independent session
     async with async_session() as msg_db:
@@ -167,38 +167,25 @@ async def chat_stream(
                 conv.title = message[:30] + ("..." if len(message) > 30 else "")
                 conv.updated_at = datetime.now(timezone.utc)
 
-    # Read-only: get model config and build context using the request session
-    model_config = await llm_service.get_model_config_from_db(db, model_id)
+    # Build messages array using build_chat_context in an independent session.
+    # This ensures the request-level `db` session is not held during LLM streaming.
+    try:
+        async with async_session() as ctx_db:
+            messages, _ = await build_chat_context(ctx_db, conv_id, message)
+        # Also resolve model config in the same short-lived session
+        async with async_session() as cfg_db:
+            model_config = await llm_service.get_model_config_from_db(cfg_db, model_id)
+    except ValueError as e:
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
     if not model_config:
         yield f"data: {json.dumps({'error': 'Model not configured'})}\n\n"
         yield "data: [DONE]\n\n"
         return
 
-    # Build messages array
-    history = await get_messages(db, conv_id)
-    history_msgs = [{"role": m.role, "content": m.content} for m in history if m.role != "user" or m.content != message]
-
-    wiki_pages = await wiki_service.get_wiki_summaries(db, limit=50)
-    if wiki_pages:
-        wiki_context = "\n".join([
-            f"- **{p.title}** ({p.wiki_type}): {p.summary}"
-            for p in wiki_pages
-        ])
-    else:
-        wiki_context = "(知识库暂无内容)"
-    model_display_name = model_config.get("display_name") or model_config.get("model_name", "unknown")
-    system_prompt = (
-        f"你是用户的个人知识助手，代号「赛博龙虾」。你当前运行的底层模型是：{model_display_name}。"
-        "如果用户询问你是什么模型，请如实告知，不要猜测。\n\n"
-        f"## 用户的知识库摘要\n{wiki_context}\n\n"
-        "回答时优先引用知识库中的内容。"
-    )
-
-    messages = [{"role": "system", "content": system_prompt}] + history_msgs[:-1] + [
-        {"role": "user", "content": message}
-    ]
-
-    # Stream
+    # Stream — no DB session held during this long-running loop
     full_response = ""
     try:
         response = await llm_service.chat_completion(model_config, messages, stream=True)

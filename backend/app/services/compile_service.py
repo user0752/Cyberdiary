@@ -13,56 +13,34 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session
+from app.core.progress_store import (
+    get_progress as _get_progress,
+    init_progress,
+    update_progress,
+    gc_stale_progress,
+)
 from app.models.compile_job import CompileJob
 from app.models.memo import Memo
 from app.models.wiki import WikiLink, WikiPage
 from app.services import llm_service
 from app.services import wiki_service
+from app.services.progress_tracker import safe_progress_update
 from app.utils.markdown import slugify, parse_front_matter, extract_wiki_links
+from app.utils.db import tag_contains
+from app.utils.sanitize import sanitize_error_message
 
-# In-memory progress tracker for SSE streaming
-# Key: job_id, Value: dict with status, progress, message, output
-_compile_progress: dict[str, dict] = {}
-# asyncio.Lock (not threading.Lock) — all accesses happen inside the event
-# loop. Using a threading.Lock in async code risks blocking the loop and
-# deadlocks once run_in_executor / thread-pool dispatch is introduced.
-_progress_lock = asyncio.Lock()
-
-# TTL for stale progress entries (1 hour)
-_PROGRESS_TTL_SECONDS = 3600
-
-
-async def _gc_stale_progress() -> int:
-    """Remove compile progress entries older than _PROGRESS_TTL_SECONDS.
-
-    Returns the number of entries purged.
-    """
-    now = _time_module.monotonic()
-    purged = 0
-    async with _progress_lock:
-        stale_ids = [
-            jid for jid, entry in _compile_progress.items()
-            if now - entry.get('_created_at', 0) > _PROGRESS_TTL_SECONDS
-        ]
-        for jid in stale_ids:
-            del _compile_progress[jid]
-            purged += 1
-    if purged:
-        logging.getLogger(__name__).debug(
-            "_gc_stale_progress: purged %d stale entries", purged,
-        )
-    return purged
+logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
-def get_progress(job_id: str) -> dict | None:
+async def get_progress(job_id: str) -> dict | None:
     """Get current progress for a compile job.
 
-    Returns in-memory progress if available (fast path for SSE polling).
-    Returns None if not found in memory — callers should fall back to DB.
+    Returns Redis/in-memory progress if available (fast path for SSE polling).
+    Returns None if not found — callers should fall back to DB.
     """
-    return _compile_progress.get(job_id)
+    return await _get_progress(job_id)
 
 
 async def get_progress_from_db(job_id: str) -> dict | None:
@@ -87,47 +65,7 @@ async def get_progress_from_db(job_id: str) -> dict | None:
         return None
 
 
-async def _safe_progress_update(job_id: str, **kwargs):
-    """Async-safe progress update under asyncio.Lock.
-
-    Updates both the in-memory cache and the database so that progress
-    survives process restarts.
-
-    Calls _gc_stale_progress before acquiring the lock to clean up
-    completed/failed entries older than the TTL.
-    """
-    await _gc_stale_progress()
-    async with _progress_lock:
-        if job_id in _compile_progress:
-            _compile_progress[job_id].update(**kwargs)
-
-    # Persist key fields to database (best-effort, non-blocking)
-    _db_fields = {}
-    if 'status' in kwargs:
-        _db_fields['status'] = kwargs['status']
-    if 'progress' in kwargs:
-        _db_fields['progress'] = kwargs['progress']
-    if 'message' in kwargs and 'status' in kwargs and kwargs['status'] in ('done', 'failed'):
-        # Store message as result_summary/error_msg for terminal states
-        if kwargs['status'] == 'done':
-            _db_fields['result_summary'] = kwargs['message']
-        elif kwargs['status'] == 'failed':
-            _db_fields['error_msg'] = kwargs['message']
-
-    if _db_fields:
-        try:
-            async with async_session() as db:
-                await db.execute(
-                    update(CompileJob)
-                    .where(CompileJob.id == job_id)
-                    .values(**_db_fields)
-                )
-                await db.commit()
-        except Exception:
-            pass  # DB write is best-effort; in-memory cache is the primary source
-
-
-def _parse_compile_output(output: str, source_memo_ids: list[str]) -> list[dict]:
+def parse_compile_output(output: str, source_memo_ids: list[str]) -> list[dict]:
     """Parse LLM compile output into structured wiki page dicts.
 
     Attempts JSON parsing first (preferred structured format):
@@ -236,6 +174,207 @@ async def _mark_memos_compiled(db: AsyncSession, memo_ids: list[str]):
     )
 
 
+async def save_compile_results(
+    db: AsyncSession,
+    pages: list[dict],
+    memo_ids: list[str],
+    semantic_links: list[dict] | None = None,
+) -> list[str]:
+    """Save compiled wiki pages, semantic links, and mark memos as compiled.
+
+    Shared by both single-agent and multi-agent compile pipelines.
+
+    Returns the list of saved page slugs.
+    """
+    # Deduplicate by slug, merging source_memo_ids
+    seen_slugs: dict[str, dict] = {}
+    for p in pages:
+        slug = p['slug']
+        if slug in seen_slugs:
+            existing_ids = set(seen_slugs[slug]['source_memo_ids'])
+            existing_ids.update(p['source_memo_ids'])
+            seen_slugs[slug]['source_memo_ids'] = list(existing_ids)
+            seen_slugs[slug]['content'] += '\n\n' + p['content']
+        else:
+            seen_slugs[slug] = p
+    pages = list(seen_slugs.values())
+
+    # Save wiki pages
+    new_slugs = []
+    for page_data in pages:
+        await wiki_service.save_wiki_page(
+            db,
+            slug=page_data['slug'],
+            title=page_data['title'],
+            wiki_type=page_data['wiki_type'],
+            content=page_data['content'],
+            summary=page_data['summary'],
+            tags=page_data['tags'],
+            source_memo_ids=page_data['source_memo_ids'],
+            wiki_links=page_data['wiki_links'],
+        )
+        new_slugs.append(page_data['slug'])
+
+    # Tag-based fallback links: batch query existing links to avoid N+1
+    MAX_LINKS_PER_TAG = 20  # Cap slugs per tag to avoid O(N²) pair explosion
+    tag_to_slugs: dict[str, list[str]] = {}
+    for p in pages:
+        for tag in p['tags']:
+            tag_to_slugs.setdefault(tag, []).append(p['slug'])
+
+    link_pairs_to_create: list[tuple[str, str]] = []
+    for tag, slugs in tag_to_slugs.items():
+        if len(slugs) < 2:
+            continue
+        capped = slugs[:MAX_LINKS_PER_TAG]
+        for i in range(len(capped)):
+            for j in range(i + 1, len(capped)):
+                link_pairs_to_create.append((capped[i], capped[j]))
+                link_pairs_to_create.append((capped[j], capped[i]))
+
+    # Link new pages to existing pages that share tags
+    if tag_to_slugs:
+        for tag in list(tag_to_slugs.keys()):
+            existing_result = await db.execute(
+                select(WikiPage.slug).where(
+                    tag_contains(WikiPage.tags, tag),
+                    WikiPage.slug.notin_(new_slugs),
+                )
+            )
+            for ext_slug in [row[0] for row in existing_result.all()]:
+                for new_slug in tag_to_slugs[tag][:MAX_LINKS_PER_TAG]:
+                    link_pairs_to_create.append((new_slug, ext_slug))
+                    link_pairs_to_create.append((ext_slug, new_slug))
+
+    # Batch check existing links via IN clause (avoids OR-chain explosion)
+    if link_pairs_to_create:
+        # Deduplicate pairs
+        unique_pairs = set(link_pairs_to_create)
+        all_slugs = {s for pair in unique_pairs for s in pair}
+        existing_links_result = await db.execute(
+            select(WikiLink.from_slug, WikiLink.to_slug).where(
+                WikiLink.from_slug.in_(all_slugs)
+            )
+        )
+        existing_link_set = {(row[0], row[1]) for row in existing_links_result.all()}
+        for from_slug, to_slug in unique_pairs:
+            if (from_slug, to_slug) not in existing_link_set:
+                db.add(WikiLink(from_slug=from_slug, to_slug=to_slug))
+
+    # Save semantic links (multi-agent only)
+    if semantic_links:
+        from app.models.multi_agent import SemanticLink
+        for link in semantic_links:
+            if link.get("confidence", 0) >= 0.7:
+                source_slug = link.get("source_slug")
+                target_slug = link.get("target_slug")
+                if source_slug and target_slug:
+                    db.add(SemanticLink(
+                        source_slug=source_slug,
+                        target_slug=target_slug,
+                        relation_type=link.get("relation_type", "related"),
+                        confidence=link["confidence"],
+                        reason=link.get("reason", ""),
+                    ))
+
+    # Mark memos as compiled
+    await _mark_memos_compiled(db, memo_ids)
+
+    return new_slugs
+
+
+async def _load_compile_memos(
+    db: AsyncSession, job_id: str, memo_ids: list[str] | None,
+) -> tuple[list[Memo], list[str]]:
+    """Load memos for compilation. Resets orphaned compiled memos if needed.
+
+    Returns (memos, actual_memo_ids). Empty list if no memos to compile.
+    """
+    if memo_ids:
+        result = await db.execute(select(Memo).where(Memo.id.in_(memo_ids)))
+        memos = list(result.scalars().all())
+    else:
+        memos = await get_uncompiled_memos(db)
+
+        # Safety: reset orphaned compiled memos (compiled=True but wiki pages deleted)
+        if not memos:
+            result = await db.execute(
+                select(Memo).where(Memo.compiled == True, Memo.archived == False)
+            )
+            orphaned = list(result.scalars().all())
+            if orphaned:
+                await update_progress(job_id, message=f'Resetting {len(orphaned)} orphaned memos...')
+                await db.execute(
+                    update(Memo)
+                    .where(Memo.id.in_([m.id for m in orphaned]))
+                    .values(compiled=False, updated_at=datetime.now(timezone.utc))
+                )
+                memos = await get_uncompiled_memos(db)
+
+    return memos, [m.id for m in memos]
+
+
+async def _stream_compile_llm(
+    job_id: str, model_config: dict, messages: list[dict],
+) -> str:
+    """Call LLM with streaming and return the full output text."""
+    full_output = ''
+    chunk_count = 0
+    response = await llm_service.chat_completion(model_config, messages, stream=True)
+
+    async for chunk in response:
+        if chunk.choices and chunk.choices[0].delta.content:
+            token = chunk.choices[0].delta.content
+            full_output += token
+            chunk_count += 1
+            if chunk_count % 20 == 0:
+                await update_progress(
+                    job_id,
+                    progress=min(20 + (chunk_count // 20) * 2, 70),
+                    message=f'Generating... ({len(full_output)} chars)',
+                )
+    return full_output
+
+
+async def record_compile_failure(job_id: str, error_msg: str) -> None:
+    """Mark a compile job as failed in the database (shared by both pipelines)."""
+    try:
+        async with async_session() as db:
+            job = (await db.execute(
+                select(CompileJob).where(CompileJob.id == job_id)
+            )).scalar_one_or_none()
+            if job:
+                job.status = 'failed'
+                job.error_msg = error_msg
+                job.finished_at = datetime.now(timezone.utc)
+                await db.commit()
+    except Exception:
+        logger.exception("Failed to record compile job failure for %s", job_id)
+
+
+async def _resolve_compile_model(db: AsyncSession, model_id: str) -> dict:
+    """Fetch and validate the LLM model config for compilation.  Raises
+    ValueError if the model is not configured."""
+    model_config = await llm_service.get_model_config_from_db(db, model_id)
+    if not model_config:
+        raise ValueError(f'Model {model_id} not configured')
+    return model_config
+
+
+def _build_compile_messages(memos: list[Memo]) -> list[dict]:
+    """Build the system + user messages for the compilation LLM call."""
+    memo_content = '\n\n---\n\n'.join([
+        f'### Memo {i+1}\n{m.content}' for i, m in enumerate(memos)
+    ])
+    system_prompt = (PROMPTS_DIR / 'compile_system.md').read_text(encoding='utf-8')
+    user_template = (PROMPTS_DIR / 'compile_user.md').read_text(encoding='utf-8')
+    user_prompt = user_template.format(memo_count=len(memos), memo_content=memo_content)
+    return [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': user_prompt},
+    ]
+
+
 async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
     """Background compile task. Uses its own DB session.
 
@@ -243,15 +382,12 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
     are performed within a single transaction so that a failure at any
     point rolls back *all* partial writes, preventing data inconsistency.
     """
-    progress = _compile_progress.setdefault(job_id, {
-        'status': 'running', 'progress': 0, 'message': 'Starting...',
-        '_created_at': _time_module.monotonic(),
-    })
+    await init_progress(job_id, status='running', progress=0, message='Starting...')
 
     try:
         async with async_session() as db:
             async with db.begin():
-                # Update job status
+                # 1) Load & validate job
                 job = (await db.execute(
                     select(CompileJob).where(CompileJob.id == job_id)
                 )).scalar_one_or_none()
@@ -260,87 +396,27 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
                 job.status = 'running'
                 job.started_at = datetime.now(timezone.utc)
 
-                # Get memos
-                if memo_ids:
-                    result = await db.execute(
-                        select(Memo).where(Memo.id.in_(memo_ids))
-                    )
-                    memos = list(result.scalars().all())
-                else:
-                    memos = await get_uncompiled_memos(db)
-
-                    # Safety: reset orphaned compiled memos (compiled=True but wiki pages deleted)
-                    if not memos:
-                        result = await db.execute(
-                            select(Memo).where(Memo.compiled == True, Memo.archived == False)
-                        )
-                        orphaned = list(result.scalars().all())
-                        if orphaned:
-                            progress['message'] = f'Resetting {len(orphaned)} orphaned memos...'
-                            await db.execute(
-                                update(Memo)
-                                .where(Memo.id.in_([m.id for m in orphaned]))
-                                .values(compiled=False, updated_at=datetime.now(timezone.utc))
-                            )
-                            memos = await get_uncompiled_memos(db)
-
+                # 2) Load memos
+                memos, actual_memo_ids = await _load_compile_memos(db, job_id, memo_ids)
                 if not memos:
-                    progress.update(status='done', progress=100, message='No uncompiled memos found')
+                    await update_progress(job_id, status='done', progress=100, message='No uncompiled memos found')
                     job.status = 'done'
                     job.result_summary = 'No uncompiled memos found'
                     job.finished_at = datetime.now(timezone.utc)
                     return
 
-                actual_memo_ids = [m.id for m in memos]
-                progress['message'] = f'Compiling {len(memos)} memos...'
-                progress['progress'] = 10
+                await update_progress(job_id, message=f'Compiling {len(memos)} memos...', progress=10)
 
-                # Build prompt
-                memo_content = '\n\n---\n\n'.join([
-                    f'### Memo {i+1}\n{m.content}' for i, m in enumerate(memos)
-                ])
+                # 3) Build prompt & resolve model
+                messages = _build_compile_messages(memos)
+                model_config = await _resolve_compile_model(db, model_id)
 
-                system_prompt_path = PROMPTS_DIR / 'compile_system.md'
-                user_template_path = PROMPTS_DIR / 'compile_user.md'
-                system_prompt = system_prompt_path.read_text(encoding='utf-8')
-                user_template = user_template_path.read_text(encoding='utf-8')
-                user_prompt = user_template.format(
-                    memo_count=len(memos),
-                    memo_content=memo_content,
-                )
+                # 4) Call LLM + parse results
+                await update_progress(job_id, message='Calling LLM...', progress=20)
+                full_output = await _stream_compile_llm(job_id, model_config, messages)
 
-                # Get model config
-                model_config = await llm_service.get_model_config_from_db(db, model_id)
-                if not model_config:
-                    raise ValueError(f'Model {model_id} not configured')
-
-                progress['message'] = 'Calling LLM...'
-                progress['progress'] = 20
-
-                # Call LLM with streaming
-                messages = [
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': user_prompt},
-                ]
-
-                full_output = ''
-                chunk_count = 0
-                response = await llm_service.chat_completion(model_config, messages, stream=True)
-
-                async for chunk in response:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        token = chunk.choices[0].delta.content
-                        full_output += token
-                        chunk_count += 1
-                        if chunk_count % 20 == 0:
-                            progress['progress'] = min(20 + (chunk_count // 20) * 2, 70)
-                            progress['message'] = f'Generating... ({len(full_output)} chars)'
-
-                progress.update(progress=75, message='Parsing output...')
-
-                # Parse output into wiki pages
-                pages = _parse_compile_output(full_output, actual_memo_ids)
-
+                await update_progress(job_id, progress=75, message='Parsing output...')
+                pages = parse_compile_output(full_output, actual_memo_ids)
                 if not pages:
                     preview = full_output[:100].replace('\n', '\\n') if full_output else '(empty)'
                     raise ValueError(
@@ -348,120 +424,24 @@ async def _do_compile(job_id: str, memo_ids: list[str] | None, model_id: str):
                         f'Raw output preview (first 100 chars): {preview}'
                     )
 
-                progress['message'] = f'Saving {len(pages)} wiki pages...'
-                progress['progress'] = 80
+                # 5) Persist results
+                await update_progress(job_id, message=f'Saving {len(pages)} wiki pages...', progress=80)
+                await save_compile_results(db, pages, actual_memo_ids)
 
-                # Deduplicate by slug, merging source_memo_ids
-                seen_slugs: dict[str, dict] = {}
-                for p in pages:
-                    slug = p['slug']
-                    if slug in seen_slugs:
-                        existing_ids = set(seen_slugs[slug]['source_memo_ids'])
-                        existing_ids.update(p['source_memo_ids'])
-                        seen_slugs[slug]['source_memo_ids'] = list(existing_ids)
-                        seen_slugs[slug]['content'] += '\n\n' + p['content']
-                    else:
-                        seen_slugs[slug] = p
-                pages = list(seen_slugs.values())
-
-                # Save wiki pages
-                new_slugs = []
-                for page_data in pages:
-                    await wiki_service.save_wiki_page(
-                        db,
-                        slug=page_data['slug'],
-                        title=page_data['title'],
-                        wiki_type=page_data['wiki_type'],
-                        content=page_data['content'],
-                        summary=page_data['summary'],
-                        tags=page_data['tags'],
-                        source_memo_ids=page_data['source_memo_ids'],
-                        wiki_links=page_data['wiki_links'],
-                    )
-                    new_slugs.append(page_data['slug'])
-
-                # Tag-based fallback links: batch query existing links to avoid N+1
-                tag_to_slugs: dict[str, list[str]] = {}
-                for p in pages:
-                    for tag in p['tags']:
-                        tag_to_slugs.setdefault(tag, []).append(p['slug'])
-
-                # Collect all link pairs that need to be created
-                link_pairs_to_create: list[tuple[str, str]] = []
-                for tag, slugs in tag_to_slugs.items():
-                    if len(slugs) < 2:
-                        continue
-                    for i in range(len(slugs)):
-                        for j in range(i + 1, len(slugs)):
-                            link_pairs_to_create.append((slugs[i], slugs[j]))
-                            link_pairs_to_create.append((slugs[j], slugs[i]))
-
-                # Also link new pages to existing pages that share tags
-                existing_pages_by_tag: dict[str, list[str]] = {}
-                if tag_to_slugs:
-                    all_tags = list(tag_to_slugs.keys())
-                    for tag in all_tags:
-                        existing_result = await db.execute(
-                            select(WikiPage.slug).where(
-                                WikiPage.tags.like(f'%"{tag}"%'),
-                                WikiPage.slug.notin_(new_slugs),
-                            )
-                        )
-                        existing_pages_by_tag[tag] = [row[0] for row in existing_result.all()]
-                        for new_slug in tag_to_slugs[tag]:
-                            for ext_slug in existing_pages_by_tag[tag]:
-                                link_pairs_to_create.append((new_slug, ext_slug))
-                                link_pairs_to_create.append((ext_slug, new_slug))
-
-                # Batch check existing links
-                if link_pairs_to_create:
-                    from sqlalchemy import or_
-                    existing_links_result = await db.execute(
-                        select(WikiLink.from_slug, WikiLink.to_slug).where(
-                            or_(*[
-                                (WikiLink.from_slug == pair[0]) & (WikiLink.to_slug == pair[1])
-                                for pair in link_pairs_to_create
-                            ])
-                        )
-                    )
-                    existing_link_set = {(row[0], row[1]) for row in existing_links_result.all()}
-
-                    # Insert only new links
-                    for from_slug, to_slug in link_pairs_to_create:
-                        if (from_slug, to_slug) not in existing_link_set:
-                            db.add(WikiLink(from_slug=from_slug, to_slug=to_slug))
-
-                # Mark memos as compiled
-                await _mark_memos_compiled(db, actual_memo_ids)
-
-                # Update job
+                # 6) Finalize job
                 summary = f'Compiled {len(memos)} memos into {len(pages)} wiki pages'
                 job.status = 'done'
                 job.result_summary = summary
                 job.finished_at = datetime.now(timezone.utc)
-
-                progress.update(status='done', progress=100, message=summary)
+                await update_progress(job_id, status='done', progress=100, message=summary)
             # db.begin() auto-commits on success, auto-rolls back on exception
 
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        error_msg = str(e)
-        logger.exception("Compile job %s failed: %s", job_id, error_msg)
-        progress.update(status='failed', progress=0, message=f'Error: {error_msg}')
-
-        try:
-            async with async_session() as db:
-                job = (await db.execute(
-                    select(CompileJob).where(CompileJob.id == job_id)
-                )).scalar_one_or_none()
-                if job:
-                    job.status = 'failed'
-                    job.error_msg = error_msg
-                    job.finished_at = datetime.now(timezone.utc)
-                    await db.commit()
-        except Exception:
-            logger.exception("Failed to record compile job failure for %s", job_id)
+        raw_msg = str(e)
+        logger.exception("Compile job %s failed: %s", job_id, raw_msg)
+        error_msg = sanitize_error_message(raw_msg)
+        await update_progress(job_id, status='failed', progress=0, message=f'Error: {error_msg}')
+        await record_compile_failure(job_id, error_msg)
 
 
 async def trigger_compile(
@@ -481,15 +461,23 @@ async def trigger_compile(
     await db.refresh(job)
 
     # Initialize progress tracker
-    _compile_progress[job.id] = {
-        'status': 'pending',
-        'progress': 0,
-        'message': 'Queued...',
-        '_created_at': _time_module.monotonic(),
-    }
+    await init_progress(
+        job.id,
+        status='pending', progress=0, message='Queued...',
+    )
 
     # Launch background task (uses its own DB session)
     task = asyncio.create_task(_do_compile(job.id, memo_ids, model_id))
+
+    # Always log uncaught exceptions from background tasks
+    def _log_task_exception(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc:
+            logger.exception("Background compile task failed [job_id=%s]: %s", job.id, exc, exc_info=exc)
+
+    task.add_done_callback(_log_task_exception)
 
     # Register with app state for graceful shutdown (if available)
     try:

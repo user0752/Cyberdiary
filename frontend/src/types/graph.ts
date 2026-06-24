@@ -1,30 +1,33 @@
 /** Knowledge graph type definitions. */
 
-// Node type enum — matches Researcher entity types
-export enum NodeType {
-  TECHNOLOGY = "technology",
-  CONCEPT = "concept",
-  PERSON = "person",
-  ORGANIZATION = "organization",
-  TOOL = "tool",
-  FRAMEWORK = "framework",
-  LANGUAGE = "language",
-  METHOD = "method",
-  THEORY = "theory",
-  OTHER = "other",
-}
+// Node type — matches Researcher entity types.
+// Using const object + union type instead of enum (erasableSyntaxOnly).
+export const NodeType = {
+  TECHNOLOGY: "technology",
+  CONCEPT: "concept",
+  PERSON: "person",
+  ORGANIZATION: "organization",
+  TOOL: "tool",
+  FRAMEWORK: "framework",
+  LANGUAGE: "language",
+  METHOD: "method",
+  THEORY: "theory",
+  OTHER: "other",
+} as const
+export type NodeType = (typeof NodeType)[keyof typeof NodeType]
 
-// Edge type enum — matches relation predicates
-export enum EdgeType {
-  BELONGS_TO = "belongs_to",
-  USED_FOR = "used_for",
-  DEPENDS_ON = "depends_on",
-  SIMILAR_TO = "similar_to",
-  RELATES_TO = "relates_to",
-  DERIVED_FROM = "derived_from",
-  IMPLEMENTS = "implements",
-  REFERENCES = "references",
-}
+// Edge type — matches relation predicates.
+export const EdgeType = {
+  BELONGS_TO: "belongs_to",
+  USED_FOR: "used_for",
+  DEPENDS_ON: "depends_on",
+  SIMILAR_TO: "similar_to",
+  RELATES_TO: "relates_to",
+  DERIVED_FROM: "derived_from",
+  IMPLEMENTS: "implements",
+  REFERENCES: "references",
+} as const
+export type EdgeType = (typeof EdgeType)[keyof typeof EdgeType]
 
 // Graph node
 export interface GraphNode {

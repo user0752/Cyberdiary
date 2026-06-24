@@ -291,8 +291,10 @@ class TestAgentErrorHandler:
 
         result = handler._fallback("reviewer_accuracy", state, None)
         assert len(result["reviews"]) == 1
-        assert result["reviews"][0]["score"] == 8.0
-        assert "auto-pass" in result["reviews"][0]["feedback"]
+        assert result["reviews"][0]["score"] == 0.0
+        assert result["reviews"][0].get("fallback") is True
+        assert "degraded_agents" in result
+        assert "reviewer_accuracy" in result["degraded_agents"]
 
     @pytest.mark.asyncio
     async def test_linker_fallback_returns_empty_links(self):
@@ -841,52 +843,56 @@ class TestHumanReviewManager:
 class TestCompilationTracer:
     """Test trace event emission and entry collection."""
 
-    def test_phase_start_and_end(self):
+    @pytest.mark.asyncio
+    async def test_phase_start_and_end(self):
         from app.core.compilation_tracer import CompilationTracer
 
         tracer = CompilationTracer(job_id="test")
         tracer.summary_stats = {}  # for test isolation
 
-        tracer.phase_start("TestAgent", "L1", "Starting test")
+        await tracer.phase_start("TestAgent", "L1", "Starting test")
         assert len(tracer.entries) == 1
         assert tracer.entries[0].event_type.value == "phase_start"
         assert tracer.entries[0].agent == "TestAgent"
 
-        tracer.phase_end("TestAgent", "L1", "Finished test", {"result": "ok"})
+        await tracer.phase_end("TestAgent", "L1", "Finished test", {"result": "ok"})
         assert len(tracer.entries) == 2
         assert tracer.entries[1].event_type.value == "phase_end"
         assert tracer.entries[1].duration_ms is not None
 
-    def test_llm_request_and_response(self):
+    @pytest.mark.asyncio
+    async def test_llm_request_and_response(self):
         from app.core.compilation_tracer import CompilationTracer
 
         tracer = CompilationTracer(job_id="test")
-        tracer.llm_request("LLM", "L1", "Request", "prompt text...", "gpt-4", full_prompt_len=100)
-        tracer.llm_response("LLM", "L1", "Response", "response text...", tokens=50)
+        await tracer.llm_request("LLM", "L1", "Request", "prompt text...", "gpt-4", full_prompt_len=100)
+        await tracer.llm_response("LLM", "L1", "Response", "response text...", tokens=50)
 
         assert len(tracer.entries) == 2
         assert tracer.entries[0].event_type.value == "llm_request"
         assert tracer.entries[1].event_type.value == "llm_response"
         assert tracer.entries[1].data["tokens"] == 50
 
-    def test_get_full_trace(self):
+    @pytest.mark.asyncio
+    async def test_get_full_trace(self):
         from app.core.compilation_tracer import CompilationTracer
 
         tracer = CompilationTracer(job_id="test")
-        tracer.phase_start("A", "L0", "Start")
-        tracer.phase_end("A", "L0", "End")
+        await tracer.phase_start("A", "L0", "Start")
+        await tracer.phase_end("A", "L0", "End")
 
         full = tracer.get_full_trace()
         assert len(full) == 2
         assert all(isinstance(e, dict) for e in full)
         assert "duration_ms" in full[1]
 
-    def test_unique_ids_increment(self):
+    @pytest.mark.asyncio
+    async def test_unique_ids_increment(self):
         from app.core.compilation_tracer import CompilationTracer
 
         tracer = CompilationTracer(job_id="test")
-        tracer.phase_start("A", "L0", "E1")
-        tracer.phase_start("B", "L1", "E2")
+        await tracer.phase_start("A", "L0", "E1")
+        await tracer.phase_start("B", "L1", "E2")
 
         ids = [e.id for e in tracer.entries]
         assert ids[0] != ids[1]
@@ -899,10 +905,10 @@ class TestCompilationTracer:
 # ============================================================================
 
 class TestParseCompileOutput:
-    """Test _parse_compile_output section splitting and metadata extraction."""
+    """Test parse_compile_output section splitting and metadata extraction."""
 
     def test_parses_sections_with_front_matter(self):
-        from app.services.compile_service import _parse_compile_output
+        from app.services.compile_service import parse_compile_output
 
         output = """---
 title: FastAPI Guide
@@ -926,7 +932,7 @@ summary: ORM guide
 
 SQLAlchemy is the Python ORM.
 """
-        pages = _parse_compile_output(output, ["m1", "m2"])
+        pages = parse_compile_output(output, ["m1", "m2"])
         assert len(pages) == 2
         assert pages[0]["slug"] == "fastapi-guide"
         assert pages[1]["title"] == "SQLAlchemy ORM"
@@ -934,32 +940,32 @@ SQLAlchemy is the Python ORM.
         assert "python" in pages[0]["tags"]
 
     def test_extracts_title_from_heading_when_no_front_matter(self):
-        from app.services.compile_service import _parse_compile_output
+        from app.services.compile_service import parse_compile_output
 
         output = """# My Wiki Page
 
 Some content without front matter.
 """
-        pages = _parse_compile_output(output, ["m1"])
+        pages = parse_compile_output(output, ["m1"])
         assert len(pages) == 1
         assert pages[0]["title"] == "My Wiki Page"
 
     def test_fallback_title_from_content(self):
-        from app.services.compile_service import _parse_compile_output
+        from app.services.compile_service import parse_compile_output
 
         output = "This is a wiki page with no heading and no front matter."
-        pages = _parse_compile_output(output, ["m1"])
+        pages = parse_compile_output(output, ["m1"])
         assert len(pages) == 1
         assert len(pages[0]["title"]) > 0
 
     def test_empty_output_returns_no_pages(self):
-        from app.services.compile_service import _parse_compile_output
+        from app.services.compile_service import parse_compile_output
 
-        pages = _parse_compile_output("", ["m1"])
+        pages = parse_compile_output("", ["m1"])
         assert pages == []
 
     def test_wiki_links_extracted(self):
-        from app.services.compile_service import _parse_compile_output
+        from app.services.compile_service import parse_compile_output
 
         output = """---
 title: Test Page
@@ -969,14 +975,14 @@ type: concept
 
 See [[Other Page]] and [[Another One]] for more.
 """
-        pages = _parse_compile_output(output, ["m1"])
+        pages = parse_compile_output(output, ["m1"])
         assert len(pages) == 1
         # extract_wiki_links returns slugified names
         assert "other-page" in pages[0]["wiki_links"]
         assert "another-one" in pages[0]["wiki_links"]
 
     def test_invalid_type_falls_back_to_concept(self):
-        from app.services.compile_service import _parse_compile_output
+        from app.services.compile_service import parse_compile_output
 
         output = """---
 title: Test
@@ -984,7 +990,7 @@ type: invalid_type
 ---
 # Test
 """
-        pages = _parse_compile_output(output, ["m1"])
+        pages = parse_compile_output(output, ["m1"])
         assert pages[0]["wiki_type"] == "concept"
 
 

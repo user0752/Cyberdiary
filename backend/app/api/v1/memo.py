@@ -67,8 +67,12 @@ async def update_memo(memo_id: str, data: MemoUpdate, db: AsyncSession = Depends
 
 
 @router.delete("/{memo_id}", response_model=ApiResponse)
-async def delete_memo(memo_id: str, db: AsyncSession = Depends(get_db)):
-    ok = await memo_service.delete_memo(db, memo_id)
+async def delete_memo(
+    memo_id: str,
+    hard_delete: bool = Query(False, description="Permanently delete instead of archiving"),
+    db: AsyncSession = Depends(get_db),
+):
+    ok = await memo_service.delete_memo(db, memo_id, hard_delete=hard_delete)
     if not ok:
         raise HTTPException(status_code=404, detail="Memo not found")
-    return ApiResponse(message="Memo deleted")
+    return ApiResponse(message="Memo deleted" if hard_delete else "Memo archived")

@@ -40,22 +40,24 @@ class CompilationTracer:
     def set_sse_callback(self, cb):
         self._sse_cb = cb
 
-    def _emit(self, entry: TraceEntry):
+    async def _emit(self, entry: TraceEntry):
         self.entries.append(entry)
         try:
-            from app.services.compile_service import _compile_progress, _progress_lock
-            with _progress_lock:
-                p = _compile_progress.get(self.job_id, {})
-                log = p.get("compilation_log", [])
-                log.append({
+            from app.core.progress_store import append_progress_list, update_progress
+            await append_progress_list(
+                self.job_id, "compilation_log",
+                {
                     "agent": entry.agent,
                     "layer": entry.layer,
                     "event": entry.event_type.value,
                     "title": entry.title,
-                })
-                p["compilation_log"] = log
-                p["current_agent"] = entry.agent
-                p["current_layer"] = entry.layer
+                },
+            )
+            await update_progress(
+                self.job_id,
+                current_agent=entry.agent,
+                current_layer=entry.layer,
+            )
         except Exception:
             pass
         if self._sse_cb:
@@ -77,48 +79,48 @@ class CompilationTracer:
         self._seq += 1
         return f"trace-{self._seq:04d}"
 
-    def phase_start(self, agent, layer, title, detail=None):
+    async def phase_start(self, agent, layer, title, detail=None):
         self._phase_starts[agent] = time.time()
-        self._emit(TraceEntry(
+        await self._emit(TraceEntry(
             id=self._next_id(), timestamp=time.time(),
             agent=agent, layer=layer, event_type=TraceEventType.PHASE_START,
             title=title, detail=detail,
         ))
 
-    def phase_end(self, agent, layer, title, data=None):
+    async def phase_end(self, agent, layer, title, data=None):
         start = self._phase_starts.pop(agent, time.time())
-        self._emit(TraceEntry(
+        await self._emit(TraceEntry(
             id=self._next_id(), timestamp=time.time(),
             agent=agent, layer=layer, event_type=TraceEventType.PHASE_END,
             title=title, data=data,
             duration_ms=round((time.time() - start) * 1000, 1),
         ))
 
-    def llm_request(self, agent, layer, title, prompt_preview, model, full_prompt_len=0):
-        self._emit(TraceEntry(
+    async def llm_request(self, agent, layer, title, prompt_preview, model, full_prompt_len=0):
+        await self._emit(TraceEntry(
             id=self._next_id(), timestamp=time.time(),
             agent=agent, layer=layer, event_type=TraceEventType.LLM_REQUEST,
             title=title, detail=prompt_preview[:600],
             data={"model": model, "prompt_len": full_prompt_len or len(prompt_preview)},
         ))
 
-    def llm_response(self, agent, layer, title, preview, tokens=None):
-        self._emit(TraceEntry(
+    async def llm_response(self, agent, layer, title, preview, tokens=None):
+        await self._emit(TraceEntry(
             id=self._next_id(), timestamp=time.time(),
             agent=agent, layer=layer, event_type=TraceEventType.LLM_RESPONSE,
             title=title, detail=preview[:600],
             data={"tokens": tokens},
         ))
 
-    def decision(self, agent, layer, title, data):
-        self._emit(TraceEntry(
+    async def decision(self, agent, layer, title, data):
+        await self._emit(TraceEntry(
             id=self._next_id(), timestamp=time.time(),
             agent=agent, layer=layer, event_type=TraceEventType.DECISION,
             title=title, data=data,
         ))
 
-    def warning(self, agent, layer, title, detail=None):
-        self._emit(TraceEntry(
+    async def warning(self, agent, layer, title, detail=None):
+        await self._emit(TraceEntry(
             id=self._next_id(), timestamp=time.time(),
             agent=agent, layer=layer, event_type=TraceEventType.WARNING,
             title=title, detail=detail,

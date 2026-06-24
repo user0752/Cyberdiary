@@ -18,10 +18,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue' // eslint-disable-line
+import { ref, onUnmounted, watch } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraph'
 import { getNodeColor } from '@/types/graph'
-import type { GraphNode } from '@/types/graph'
 
 const props = defineProps<{
   mainWidth: number

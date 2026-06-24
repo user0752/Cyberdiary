@@ -3,7 +3,6 @@
 import json
 import logging
 import os
-import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select, delete as sql_delete, func, text, update
@@ -12,21 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.memo import Memo
 from app.models.wiki import WikiPage, WikiLink
 from app.utils.markdown import extract_wiki_links
+from app.utils.db import tag_contains
+from app.utils.fts import sanitize_fts5_query
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_fts5_query(query: str) -> str:
-    """Sanitize user input for SQLite FTS5 MATCH queries.
-
-    Strips FTS5 operators and special characters that could cause
-    syntax errors or unintended matching behavior.
-    """
-    query = re.sub(r'\w+\s*:', '', query)
-    query = re.sub(r'\b(AND|OR|NOT|NEAR)\b', '', query, flags=re.IGNORECASE)
-    query = re.sub(r'[*"()^:{}]', ' ', query)
-    query = ' '.join(query.split())
-    return query
 
 
 async def list_wiki_pages(
@@ -41,7 +29,7 @@ async def list_wiki_pages(
     if wiki_type:
         conditions.append(WikiPage.wiki_type == wiki_type)
     if tag:
-        conditions.append(WikiPage.tags.like(f'%"{tag}"%'))
+        conditions.append(tag_contains(WikiPage.tags, tag))
 
     # Count
     count_stmt = select(func.count()).select_from(WikiPage)
@@ -112,7 +100,7 @@ async def update_wiki_page(
 
 async def search_wiki(db: AsyncSession, query: str, limit: int = 20) -> list[WikiPage]:
     """Full-text search using FTS5 with LIKE fallback."""
-    sanitized = _sanitize_fts5_query(query)
+    sanitized = sanitize_fts5_query(query)
     if not sanitized:
         return []
 

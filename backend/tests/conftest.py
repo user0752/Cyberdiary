@@ -233,3 +233,25 @@ def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    """Create an in-memory SQLite database and yield a session.
+
+    Use this for service-level tests that need a real database.
+    """
+    from app.core.database import Base
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    session = session_factory()
+
+    yield session
+
+    await session.close()
+    await engine.dispose()

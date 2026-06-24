@@ -9,17 +9,26 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.core.database import async_session
+from app.core.redis import get_redis
 from app.models.multi_agent import HumanReviewTask
 
 logger = logging.getLogger(__name__)
 
 
 class HumanReviewManager:
-    """Manages human review tasks with Event-based pause/resume and 5-min timeout."""
+    """Manages human review tasks with pause/resume and a 1-minute timeout.
+
+    When Redis is configured (REDIS_URL set), decisions are coordinated via
+    Redis pub/sub so the compile process and the HTTP handler submitting the
+    decision may run on different processes/instances. Otherwise, an in-memory
+    asyncio.Event-based implementation is used (single-process only).
+    """
 
     def __init__(self):
+        # Fallback-only state (used when Redis is not configured)
         self._events: dict[str, asyncio.Event] = {}
         self._results: dict[str, dict] = {}
+        # Per-process SSE callbacks (always in-memory)
         self._sse_callbacks: dict[str, callable] = {}
         self.timeout = 60  # 1 minute — sufficient for manual approval during testing
 
@@ -46,8 +55,11 @@ class HumanReviewManager:
             db.add(task)
             await db.commit()
 
-        event = asyncio.Event()
-        self._events[task_id] = event
+        r = get_redis()
+        # Fallback: register the event before notifying the frontend so that
+        # submit_decision (in the same process) can find and set it.
+        if not r:
+            self._events[task_id] = asyncio.Event()
 
         # Notify frontend via SSE
         sse_cb = self._sse_callbacks.get(job_id)
@@ -59,7 +71,8 @@ class HumanReviewManager:
                         "task_id": task_id,
                         "final_score": review_data.get("final_score", 0),
                         "review_feedback": [
-                            r.get("feedback", "") for r in review_data.get("reviews", [])
+                            review.get("feedback", "")
+                            for review in review_data.get("reviews", [])
                         ],
                         "wiki_draft": review_data.get("wiki_draft", ""),
                         "message": "Human review required",
@@ -70,8 +83,15 @@ class HumanReviewManager:
 
         # Wait for decision with timeout
         try:
-            await asyncio.wait_for(event.wait(), timeout=self.timeout)
-            result = self._results.pop(task_id, {"decision": "approve"})
+            if r:
+                result = await asyncio.wait_for(
+                    self._wait_for_decision_redis(r, task_id),
+                    timeout=self.timeout,
+                )
+            else:
+                event = self._events[task_id]
+                await asyncio.wait_for(event.wait(), timeout=self.timeout)
+                result = self._results.pop(task_id, {"decision": "approve"})
         except asyncio.TimeoutError:
             logger.warning("Review task %s timed out, auto-approving", task_id)
             result = {"decision": "approve", "edited_wiki": None}
@@ -86,12 +106,26 @@ class HumanReviewManager:
                 t.status = "resolved"
                 t.decision = result.get("decision", "approve")
                 if result.get("edited_wiki"):
-                    t.edited_wiki = result["edited_wiki"]
-                t.resolved_at = datetime.now(timezone.utc)
+                    t.user_edited_content = result["edited_wiki"]
+                t.decided_at = datetime.now(timezone.utc)
                 await db.commit()
 
         result["task_id"] = task_id
         return result
+
+    async def _wait_for_decision_redis(self, r, task_id: str) -> dict:
+        """Subscribe to the Redis decision channel and wait for the result message."""
+        channel = f"review:event:{task_id}"
+        pubsub = r.pubsub()
+        await pubsub.subscribe(channel)
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    return json.loads(message["data"])
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+        return {"decision": "approve", "edited_wiki": None}
 
     async def submit_decision(
         self, task_id: str, decision: str, edited_wiki=None,
@@ -107,13 +141,18 @@ class HumanReviewManager:
                 else "finish"
             ),
         }
-        self._results[task_id] = result
 
-        event = self._events.get(task_id)
-        if event:
-            event.set()
+        r = get_redis()
+        if r:
+            await r.set(f"review:result:{task_id}", json.dumps(result), ex=3600)
+            await r.publish(f"review:event:{task_id}", json.dumps(result))
         else:
-            logger.warning("No waiting event for task %s", task_id)
+            self._results[task_id] = result
+            event = self._events.get(task_id)
+            if event:
+                event.set()
+            else:
+                logger.warning("No waiting event for task %s", task_id)
 
         async with async_session() as db:
             t = await db.get(HumanReviewTask, task_id)
@@ -121,8 +160,8 @@ class HumanReviewManager:
                 t.status = "resolved"
                 t.decision = decision
                 if edited_wiki:
-                    t.edited_wiki = edited_wiki
-                t.resolved_at = datetime.now(timezone.utc)
+                    t.user_edited_content = edited_wiki
+                t.decided_at = datetime.now(timezone.utc)
                 await db.commit()
 
         return result

@@ -5,6 +5,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Limit concurrent embedding API calls to avoid provider rate limits
+_EMBED_CONCURRENCY = 5
+
 
 class CoordinatorAgent:
 
@@ -13,10 +16,14 @@ class CoordinatorAgent:
         embedding_model = state["compilation_config"].get("embedding_model", "")
 
         if embedding_model and len(memo_ids) >= 3:
-            state["memo_groups"] = await self.cluster_memos(
-                memo_ids, embedding_model,
-                n_clusters=min(3, len(memo_ids) // 2 + 1),
-            )
+            try:
+                state["memo_groups"] = await self.cluster_memos(
+                    memo_ids, embedding_model,
+                    n_clusters=min(3, len(memo_ids) // 2 + 1),
+                )
+            except Exception:
+                logger.exception("Clustering failed, falling back to single group")
+                state["memo_groups"] = [memo_ids]
         else:
             state["memo_groups"] = [memo_ids]
 
@@ -50,11 +57,14 @@ class CoordinatorAgent:
             result = await db.execute(select(Memo.content).where(Memo.id.in_(memo_ids)))
             contents = [row[0] for row in result.all()]
 
+        sem = asyncio.Semaphore(_EMBED_CONCURRENCY)
+
         async def embed_one(content):
-            resp = await aembedding(
-                model=embedding_model, input=content[:8000],
-                api_key=os.getenv("EMBEDDING_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or "",
-            )
-            return resp.data[0]["embedding"]
+            async with sem:
+                resp = await aembedding(
+                    model=embedding_model, input=content[:8000],
+                    api_key=os.getenv("EMBEDDING_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or "",
+                )
+                return resp.data[0]["embedding"]
 
         return await asyncio.gather(*[embed_one(c) for c in contents])

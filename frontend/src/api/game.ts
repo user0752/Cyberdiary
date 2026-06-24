@@ -1,12 +1,4 @@
-import axios from 'axios'
-
-const api = axios.create({ baseURL: '/api/v1' })
-
-interface ApiRes<T> {
-  code: number
-  message: string
-  data: T
-}
+import client from './client'
 
 export interface GameQuestion {
   id: string
@@ -53,7 +45,7 @@ export async function generateQuestions(params: {
   difficulty?: string
   model_id: string
 }): Promise<SessionCreateData> {
-  const { data } = await api.post<ApiRes<SessionCreateData>>('/game/generate', params)
+  const { data } = await client.post('/game/generate', params)
   return data.data
 }
 
@@ -62,7 +54,7 @@ export async function submitAnswer(
   questionId: string,
   userAnswer: string,
 ): Promise<AnswerResult> {
-  const { data } = await api.post<ApiRes<AnswerResult>>(
+  const { data } = await client.post(
     `/game/answer?session_id=${sessionId}`,
     { question_id: questionId, user_answer: userAnswer },
   )
@@ -70,11 +62,11 @@ export async function submitAnswer(
 }
 
 export async function finishSession(sessionId: string): Promise<GameSession> {
-  const { data } = await api.post<ApiRes<GameSession>>(`/game/sessions/${sessionId}/finish`)
+  const { data } = await client.post(`/game/sessions/${sessionId}/finish`)
   return data.data
 }
 
 export async function getSessionResults(sessionId: string): Promise<SessionSummary> {
-  const { data } = await api.get<ApiRes<SessionSummary>>(`/game/sessions/${sessionId}`)
+  const { data } = await client.get(`/game/sessions/${sessionId}`)
   return data.data
 }

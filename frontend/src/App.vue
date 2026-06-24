@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useSettingsStore } from './stores/settings'
-import { onMounted } from 'vue'
+import { useAuthStore } from './stores/auth'
+import { onMounted, computed } from 'vue'
 
 const route = useRoute()
+const router = useRouter()
 const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
 
 const navItems = [
   { path: '/memos', label: 'MEMO', icon: '01', sub: '笔记流' },
@@ -15,6 +18,13 @@ const navItems = [
   { path: '/graph', label: 'GRAPH', icon: '06', sub: '知识图谱' },
   { path: '/settings', label: 'SYS', icon: '07', sub: '系统设置' },
 ]
+
+const showAuth = computed(() => authStore.isAuthenticated)
+
+function logout() {
+  authStore.logout()
+  router.push('/login')
+}
 
 onMounted(() => {
   settingsStore.init()
@@ -64,6 +74,10 @@ onMounted(() => {
       </nav>
 
       <div class="sidebar-footer">
+        <div v-if="showAuth" class="user-block">
+          <span class="user-name">{{ authStore.username }}</span>
+          <button class="logout-btn" @click="logout">LOGOUT</button>
+        </div>
         <div class="footer-line"></div>
         <div class="footer-info">
           <span class="version">v0.1.0</span>
@@ -305,6 +319,41 @@ onMounted(() => {
   border-top: 1px solid var(--border-dim);
 }
 
+.user-block {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-dim);
+}
+
+.user-name {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 1px;
+  cursor: pointer;
+  padding: 2px 6px;
+  transition: color 0.2s;
+}
+
+.logout-btn:hover {
+  color: var(--neon-magenta);
+}
+
 .footer-line {
   height: 1px;
   background: linear-gradient(90deg, var(--accent-dim), transparent);
@@ -331,6 +380,7 @@ onMounted(() => {
 
 .main-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--bg-primary);

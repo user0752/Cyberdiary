@@ -51,11 +51,17 @@ class AgentErrorHandler:
     def _fallback(self, agent, state, fb):
         if fb is not None:
             return fb
+        state.setdefault("degraded_agents", [])
+        state["degraded_agents"].append(agent)
         if "researcher" in agent:
             state["research_results"] = [{"entities": [], "relations": [], "key_topics": []}]
         if "reviewer" in agent:
             state.setdefault("reviews", [])
-            state["reviews"].append({"score": 8.0, "feedback": "auto-pass (fallback)"})
+            state["reviews"].append({
+                "score": 0.0,
+                "feedback": "reviewer unavailable (fallback) — quality not verified",
+                "fallback": True,
+            })
         if agent == "linker":
             state["suggested_links"] = []
         return state

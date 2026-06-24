@@ -38,9 +38,18 @@ SALT_LENGTH = 16
 KEY_LENGTH = 32
 
 
+def _encryption_source() -> str:
+    """Return the key material used for AES key derivation.
+
+    Uses ENCRYPTION_KEY if set; falls back to SECRET_KEY for backward
+    compatibility with existing encrypted API keys.
+    """
+    return settings.encryption_key or settings.secret_key
+
+
 def _derive_aes_key_maybe_previous(salt: bytes) -> bytes:
-    """Derive AES key from current SECRET_KEY. Raises if salt came from previous key."""
-    raw = settings.secret_key.encode("utf-8")
+    """Derive AES key from current encryption source. Raises if salt came from previous key."""
+    raw = _encryption_source().encode("utf-8")
     return hashlib.pbkdf2_hmac("sha256", raw, salt, PBKDF2_ITERATIONS, dklen=KEY_LENGTH)
 
 
@@ -76,7 +85,7 @@ def decrypt_api_key(encrypted: str) -> str:
     This supports seamless SECRET_KEY rotation.
     """
     raw = base64.b64decode(encrypted)
-    current_key_bytes = settings.secret_key.encode("utf-8")
+    current_key_bytes = _encryption_source().encode("utf-8")
     previous_key_bytes = settings.previous_secret_key.encode("utf-8") if settings.previous_secret_key else None
 
     # Strategy 1: New format (salt + nonce + ciphertext) with PBKDF2-derived key

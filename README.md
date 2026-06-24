@@ -2,9 +2,9 @@
 
 > **笔记 + LLM 第二大脑** —— 基于 Karpathy Wiki 编译范式的个人知识管理系统
 >
-> 致力于打造一个个人知识行为信息库，专属于个人的数据层。
+> 致力于打造一个 个人知识行为信息库，专属于个人的数据层。
 >
-> 基于数据层的智能体正在开发中，非常欢迎各位开发者测试、提出问题、改进。
+> 基于数据层的个性化智能体正在开发中，非常欢迎各位开发者测试、提出问题、改进。
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.1-blue" alt="version">
@@ -19,7 +19,47 @@
 
 
 
-## V1.0 总览
+## 更新与开发日志
+
+### 最新更新 V1.1（2026-06-16）
+
+| 日期 | 更新内容 |
+|------|----------|
+| 2026-06-16 | 📊 知识图谱可视化已完成（2D/3D 双模式，D3-force + Three.js） |
+| 2026-06-11 | 🔥 多智能体协作编译引擎已完整落地（LangGraph 8-Agent 层次协作） |
+
+### 最近开发
+
+🧮 **知识防御战（Knowledge Arena）答题模块**
+
+基于 Wiki 知识库的 LLM 驱动知识测验，核心目的：让学习者在交互形式中进行信息加工，避免枯燥乏味的直接阅读。
+
+> **已完成**：Wiki 页面内容 → LLM 出题 (Prompt) → 选择题 → 用户作答 → 即时判分 → 成绩报告
+
+#### 开发计划
+
+1. 塔防游戏核心功能开发
+2. LLM 编译及题目生成的可视化思考过程
+3. 前端页面风格优化与个性化设计
+4. 知识图谱交互性与性能持续优化
+
+
+
+## V1.1
+
+![V1.1 总览 1](docs/images/image-20260616235218513.png)
+
+![V1.1 总览 2](docs/images/image-20260616235234176.png)
+
+![V1.1 总览 3](docs/images/image-20260616235321448.png)
+
+![V1.1 总览 4](docs/images/image-20260616235348348.png)
+
+
+
+
+
+## V1.0
 
 ![Memo Flow](docs/images/image-20260524222727893.png)
 
@@ -69,7 +109,7 @@
 |------|------|
 | **Memo Flow** | 时间流笔记，支持 Markdown 编辑（CodeMirror 6）、标签、全文搜索 |
 | **Compile Engine** | LLM 编译引擎，将碎片笔记编译为结构化 Wiki 页面（支持手动/定时触发）<br>🔥 **v1.1 新增** 多智能体协作编译：Coordinator → Researcher×3 → Integrator → Writer → Reviewer×2 → Arbiter → Editor/Linker，LangGraph 编排，SSE 实时追踪 |
-| **Wiki Hub** | 结构化知识库，支持分类浏览、双向链接 `[[页面名]]`、知识图谱可视化 |
+| **Wiki Hub** | 结构化知识库，支持分类浏览、双向链接 `[[页面名]]`、知识图谱可视化<br>🔥 **新增** 2D/3D 双模式图谱：D3-force 力导向图（Canvas 渲染，拖拽/缩放/筛选）+ Three.js 3D 沉浸模式（星空背景 + 泛光），SSE 实时生长动画 |
 | **Chat** | AI 对话助手，自动注入 Wiki 上下文，支持流式输出（SSE） |
 | **Model Hub** | 多模型管理，支持 DeepSeek / Qwen / Ollama，API Key 加密存储 |
 
@@ -363,6 +403,13 @@ Cyberdiary/
 │   ├── Dockerfile
 │   ├── package.json
 │   └── vite.config.ts
+├── docs/                       # 项目文档
+│   ├── PRD.md                  # 产品需求文档
+│   ├── DEV.md                  # 开发架构文档
+│   ├── PHASES.md               # 开发阶段规划
+│   ├── TESTING.md              # 测试指南
+│   ├── manuals/                # 模块开发手册（多智能体、知识图谱、塔防游戏）
+│   └── reviews/                # 代码审查报告
 ├── nginx/
 │   └── nginx.conf              # Nginx 反向代理配置
 ├── docker-compose.yml

@@ -2,20 +2,11 @@
 
 import json
 import logging
-from pathlib import Path
 
 from app.services import llm_service
+from app.utils.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
-
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts" / "multi_agent"
-
-
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
 
 
 def _compute_weighted_score(reviews: list[dict]) -> dict:
@@ -68,7 +59,7 @@ def _compute_weighted_score(reviews: list[dict]) -> dict:
 
 
 async def arbiter_agent(state):
-    prompt_template = _load_prompt("arbiter.md")
+    prompt_template = load_prompt("arbiter.md")
     prompt = prompt_template.format(
         reviews=json.dumps(state["reviews"], ensure_ascii=False),
         pass_threshold=state["compilation_config"].get("pass_threshold", 8.0),

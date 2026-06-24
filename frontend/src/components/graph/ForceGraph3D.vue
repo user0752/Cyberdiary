@@ -27,7 +27,9 @@ function onMouseMove(e: MouseEvent) {
   if (!webglAvailable.value) return
   const rnd = threeGraph.renderer.value
   if (!rnd) return
-  const nodeId = threeGraph.hitTest(e.clientX, e.clientY, rnd.domElement)
+  const result = threeGraph.throttledHitTest(e.clientX, e.clientY, rnd.domElement)
+  if (result === undefined) return // throttled — skip this event
+  const nodeId = result
   store.hoverNode(nodeId)
   threeGraph.highlightNode(nodeId)
 }
@@ -102,7 +104,7 @@ onUnmounted(() => {
 
 // Watch BOTH nodes and edges — only after mount
 watch(
-  () => [store.filteredNodes, store.filteredEdges],
+  () => [store.filteredNodes, store.filteredEdges] as [typeof store.filteredNodes, typeof store.filteredEdges],
   ([nodes, edges]) => {
     if (mounted && nodes.length > 0 && webglAvailable.value) {
       threeGraph.buildGraph(nodes, edges)

@@ -118,9 +118,13 @@ async def async_client():
 
     app.dependency_overrides = {}  # Clear any existing overrides
 
-    # Patch all module-level async_session references to use the test session
+    # Patch all module-level async_session references to use the test session.
+    # NOTE: app.api.deps imports async_session at module load, so we must patch
+    # it there too — otherwise get_db() uses the original session bound to the
+    # real DATABASE_URL, causing "no such table" errors in integration tests.
     patches = [
         patch("app.core.database.async_session", test_session),
+        patch("app.api.deps.async_session", test_session),
         patch("app.services.human_review_manager.async_session", test_session),
         patch("app.api.v1.multi_agent_compile.async_session", test_session),
         patch("app.agents.linker_agent.async_session", test_session),
@@ -205,12 +209,13 @@ class TestSSEStreaming:
             await db.commit()
 
         # Initialize progress so the stream finds it
-        from app.services.compile_service import _compile_progress
-        _compile_progress["test-sse-job"] = {
-            "status": "completed",
-            "progress": 100,
-            "message": "Done.",
-        }
+        from app.core.progress_store import init_progress
+        await init_progress(
+            "test-sse-job",
+            status="completed",
+            progress=100,
+            message="Done.",
+        )
 
         response = await async_client.get(
             "/api/v1/compile/jobs/test-sse-job/multi-stream",
@@ -428,7 +433,7 @@ class TestGraphPipelineEndToEnd:
     async def test_full_pipeline_success_path(self):
         """Run the complete 10-node graph with mocked LLM responses."""
         from app.services.multi_agent_graph import (
-            MultiAgentCompilationGraph, _active_tracers,
+            MultiAgentCompilationGraph, tracer_registry,
         )
         from app.core.compilation_tracer import CompilationTracer
 
@@ -454,7 +459,7 @@ class TestGraphPipelineEndToEnd:
 
         job_id = "test-e2e-pipeline"
         tracer = CompilationTracer(job_id=job_id)
-        _active_tracers[job_id] = tracer
+        tracer_registry.register(job_id, tracer)
 
         try:
             with patch("app.services.llm_service.chat_completion", side_effect=mock_llm):
@@ -515,13 +520,13 @@ class TestGraphPipelineEndToEnd:
             assert len(final_state["reviews"]) >= 2  # Both reviewers contributed
 
         finally:
-            _active_tracers.pop(job_id, None)
+            tracer_registry.pop(job_id)
 
     @pytest.mark.asyncio
     async def test_pipeline_with_revision_loop(self):
         """Pipeline goes through revision when first pass fails."""
         from app.services.multi_agent_graph import (
-            MultiAgentCompilationGraph, _active_tracers,
+            MultiAgentCompilationGraph, tracer_registry,
         )
         from app.core.compilation_tracer import CompilationTracer
 
@@ -552,7 +557,7 @@ class TestGraphPipelineEndToEnd:
 
         job_id = "test-revision-loop"
         tracer = CompilationTracer(job_id=job_id)
-        _active_tracers[job_id] = tracer
+        tracer_registry.register(job_id, tracer)
 
         try:
             with patch("app.services.llm_service.chat_completion", side_effect=mock_llm):
@@ -609,13 +614,13 @@ class TestGraphPipelineEndToEnd:
             assert final_state["revision_count"] >= 1
 
         finally:
-            _active_tracers.pop(job_id, None)
+            tracer_registry.pop(job_id)
 
     @pytest.mark.asyncio
     async def test_pipeline_human_review_path(self):
         """Pipeline pauses for human review when enable_human_review is True."""
         from app.services.multi_agent_graph import (
-            MultiAgentCompilationGraph, _active_tracers,
+            MultiAgentCompilationGraph, tracer_registry,
         )
         from app.core.compilation_tracer import CompilationTracer
 
@@ -658,7 +663,7 @@ class TestGraphPipelineEndToEnd:
 
         job_id = "test-hitl-pipeline"
         tracer = CompilationTracer(job_id=job_id)
-        _active_tracers[job_id] = tracer
+        tracer_registry.register(job_id, tracer)
 
         try:
             with patch("app.services.llm_service.chat_completion", side_effect=mock_llm):
@@ -711,7 +716,7 @@ class TestGraphPipelineEndToEnd:
             assert final_state["review_passed"] is True
 
         finally:
-            _active_tracers.pop(job_id, None)
+            tracer_registry.pop(job_id)
             human_review_manager.create_review_task = original_create
 
 
@@ -785,8 +790,8 @@ class TestPerformanceMetrics:
 
         start = time.time()
         for i in range(20):
-            tracer.phase_start(f"Agent{i}", f"L{i%5}", f"Event {i}")
-            tracer.phase_end(f"Agent{i}", f"L{i%5}", f"End {i}")
+            await tracer.phase_start(f"Agent{i}", f"L{i%5}", f"Event {i}")
+            await tracer.phase_end(f"Agent{i}", f"L{i%5}", f"End {i}")
         elapsed = time.time() - start
 
         # 20 phase_start + 20 phase_end = 40 trace entries in < 1 second

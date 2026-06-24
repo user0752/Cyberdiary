@@ -2,7 +2,6 @@
 
 import json
 import logging
-import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select, func, text, delete
@@ -10,25 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.memo import Memo
 from app.schemas.memo import MemoCreate, MemoUpdate
+from app.utils.db import tag_contains
+from app.utils.fts import sanitize_fts5_query
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_fts5_query(query: str) -> str:
-    """Sanitize user input for SQLite FTS5 MATCH queries.
-
-    Strips FTS5 operators and special characters that could cause
-    syntax errors or unintended matching behavior.
-    """
-    # Remove FTS5 column filters like "title :"
-    query = re.sub(r'\w+\s*:', '', query)
-    # Remove FTS5 operators
-    query = re.sub(r'\b(AND|OR|NOT|NEAR)\b', '', query, flags=re.IGNORECASE)
-    # Remove special characters that FTS5 interprets as operators
-    query = re.sub(r'[*"()^:{}]', ' ', query)
-    # Collapse whitespace and strip
-    query = ' '.join(query.split())
-    return query
 
 
 async def create_memo(db: AsyncSession, data: MemoCreate) -> Memo:
@@ -58,7 +42,7 @@ async def list_memos(
     if memo_type:
         conditions.append(Memo.memo_type == memo_type)
     if tag:
-        conditions.append(Memo.tags.like(f'%"{tag}"%'))
+        conditions.append(tag_contains(Memo.tags, tag))
 
     # Count
     count_stmt = select(func.count()).select_from(Memo)
@@ -103,20 +87,23 @@ async def update_memo(db: AsyncSession, memo_id: str, data: MemoUpdate) -> Memo 
     return memo
 
 
-async def delete_memo(db: AsyncSession, memo_id: str) -> bool:
-    """Soft delete: set archived=True."""
+async def delete_memo(db: AsyncSession, memo_id: str, hard_delete: bool = False) -> bool:
+    """Delete a memo. Soft delete (archive) by default, hard delete if requested."""
     memo = await get_memo(db, memo_id)
     if not memo:
         return False
-    memo.archived = True
-    memo.updated_at = datetime.now(timezone.utc)
+    if hard_delete:
+        await db.delete(memo)
+    else:
+        memo.archived = True
+        memo.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return True
 
 
 async def search_memos(db: AsyncSession, query: str, limit: int = 20) -> list[Memo]:
     """Full-text search using FTS5 (SQLite only) or LIKE fallback."""
-    sanitized = _sanitize_fts5_query(query)
+    sanitized = sanitize_fts5_query(query)
     if not sanitized:
         return []
 

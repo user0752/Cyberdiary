@@ -2,24 +2,15 @@
 
 import json
 import logging
-from pathlib import Path
 
 from app.services import llm_service
+from app.utils.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts" / "multi_agent"
-
-
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
-
 
 async def integrator_agent(state):
-    prompt_template = _load_prompt("integrator.md")
+    prompt_template = load_prompt("integrator.md")
 
     # Trim research results to avoid enormous prompts that cause API timeouts.
     # Each researcher returns entities, relations, key_topics — keeping only

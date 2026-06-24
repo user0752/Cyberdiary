@@ -27,9 +27,9 @@
       <!-- Compilation progress bar (when compiling) -->
       <CompilationProgressBar
         v-if="showProgress"
-        :current-phase="currentPhase"
-        :progress-percent="progressPercent"
-        :message="progressMessage"
+        :current-phase="currentPhase || ''"
+        :progress-percent="progressPercent || 0"
+        :message="progressMessage || ''"
       />
 
       <!-- Toolbar -->
@@ -80,7 +80,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraph'
 import { useSettingsStore } from '@/stores/settings'
 import ForceGraph2D from './ForceGraph2D.vue'
@@ -181,7 +181,7 @@ onUnmounted(() => {
 .knowledge-graph {
   position: relative;
   width: 100%;
-  height: 600px;
+  height: 100%;
   min-height: 400px;
   background: var(--graph-bg, #0a0a1a);
   border-radius: 12px;

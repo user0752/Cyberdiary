@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import client from '../api/client'
 
 export type Theme = 'cyberpunk' | 'dark' | 'light' | 'synthwave'

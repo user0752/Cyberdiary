@@ -1,6 +1,5 @@
-import axios from 'axios'
-
-const api = axios.create({ baseURL: '/api/v1' })
+import client from './client'
+import { streamSSE } from '@/composables/useSSEStream'
 
 export interface WikiPage {
   id: string
@@ -59,12 +58,6 @@ export interface CompileProgress {
   message: string
 }
 
-interface ApiRes<T> {
-  code: number
-  message: string
-  data: T
-}
-
 // --- Wiki API ---
 
 export async function fetchWikiPages(params: {
@@ -73,12 +66,12 @@ export async function fetchWikiPages(params: {
   wiki_type?: string
   tag?: string
 }): Promise<WikiListData> {
-  const { data } = await api.get<ApiRes<WikiListData>>('/wiki', { params })
+  const { data } = await client.get('/wiki', { params })
   return data.data
 }
 
 export async function fetchWikiPage(slug: string): Promise<WikiPage> {
-  const { data } = await api.get<ApiRes<WikiPage>>(`/wiki/${slug}`)
+  const { data } = await client.get(`/wiki/${slug}`)
   return data.data
 }
 
@@ -86,33 +79,33 @@ export async function updateWikiPage(
   slug: string,
   body: Partial<Pick<WikiPage, 'title' | 'content' | 'summary' | 'wiki_type'>> & { tags?: string[] },
 ): Promise<WikiPage> {
-  const { data } = await api.put<ApiRes<WikiPage>>(`/wiki/${slug}`, body)
+  const { data } = await client.put(`/wiki/${slug}`, body)
   return data.data
 }
 
 export async function deleteWikiPage(slug: string): Promise<void> {
-  await api.delete(`/wiki/${slug}`)
+  await client.delete(`/wiki/${slug}`)
 }
 
 export async function searchWiki(q: string, limit = 20): Promise<WikiPage[]> {
-  const { data } = await api.get<ApiRes<WikiPage[]>>('/wiki/search', { params: { q, limit } })
+  const { data } = await client.get('/wiki/search', { params: { q, limit } })
   return data.data
 }
 
 export async function fetchWikiGraph(): Promise<WikiGraphData> {
-  const { data } = await api.get<ApiRes<WikiGraphData>>('/wiki/graph')
+  const { data } = await client.get('/wiki/graph')
   return data.data
 }
 
 export async function fetchBacklinks(slug: string): Promise<WikiPage[]> {
-  const { data } = await api.get<ApiRes<WikiPage[]>>(`/wiki/backlinks/${slug}`)
+  const { data } = await client.get(`/wiki/backlinks/${slug}`)
   return data.data
 }
 
 // --- Compile API ---
 
 export async function triggerCompile(memoIds: string[] | null, modelId: string): Promise<CompileJob> {
-  const { data } = await api.post<ApiRes<CompileJob>>('/compile/trigger', {
+  const { data } = await client.post('/compile/trigger', {
     memo_ids: memoIds,
     model_id: modelId,
   })
@@ -120,45 +113,24 @@ export async function triggerCompile(memoIds: string[] | null, modelId: string):
 }
 
 export async function fetchCompileJobs(): Promise<CompileJob[]> {
-  const { data } = await api.get<ApiRes<CompileJob[]>>('/compile/jobs')
+  const { data } = await client.get('/compile/jobs')
   return data.data
 }
 
 export async function fetchCompileJob(jobId: string): Promise<CompileJob> {
-  const { data } = await api.get<ApiRes<CompileJob>>(`/compile/jobs/${jobId}`)
+  const { data } = await client.get(`/compile/jobs/${jobId}`)
   return data.data
 }
 
 export async function* streamCompileProgress(jobId: string): AsyncGenerator<CompileProgress, void> {
-  const response = await fetch(`/api/v1/compile/jobs/${jobId}/stream`)
-  if (!response.ok) {
-    yield { status: 'error', progress: 0, message: `HTTP ${response.status}` }
-    return
-  }
-
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const content = line.slice(6)
-        if (content === '[DONE]') return
-        try {
-          const parsed = JSON.parse(content) as CompileProgress
-          yield parsed
-        } catch {
-          // ignore parse errors
-        }
-      }
+  try {
+    for await (const chunk of streamSSE<CompileProgress>(
+      `/api/v1/compile/jobs/${jobId}/stream`,
+    )) {
+      yield chunk
     }
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : String(err)
+    yield { status: 'error', progress: 0, message: detail }
   }
 }
