@@ -2,8 +2,8 @@
   <div class="knowledge-graph-page">
     <div class="page-header">
       <div class="header-left">
-        <h1>知识图谱</h1>
-        <p class="subtitle">跨编译聚合 · 随知识增长</p>
+        <h1>KNOWLEDGE MAP</h1>
+        <p class="page-subtitle">跨编译聚合 · 随知识增长</p>
       </div>
       <div class="header-stats" v-if="store.graph">
         <div class="stat">
@@ -73,7 +73,14 @@ onMounted(() => {
   margin: 0;
 }
 
-.subtitle {
+.title-prefix {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  color: var(--accent);
+  opacity: 0.6;
+}
+
+.page-subtitle {
   font-size: 0.75rem;
   color: var(--text-muted);
   margin: 2px 0 0;

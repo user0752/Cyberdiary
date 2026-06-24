@@ -211,8 +211,8 @@ onMounted(loadModels)
     <div class="settings-content">
       <header class="page-header">
         <div class="page-title-block">
-          <span class="title-prefix">//</span>
           <h1 class="page-title">SYSTEM CONFIG</h1>
+          <p class="page-subtitle">系统配置 — 模型管理与偏好设定</p>
         </div>
       </header>
 
@@ -440,6 +440,14 @@ onMounted(loadModels)
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.15em;
+}
+
+.page-subtitle {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
 }
 
 .notice {

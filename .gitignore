@@ -43,3 +43,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Deploy notes with server IP
+docs/DEPLOY-*.md

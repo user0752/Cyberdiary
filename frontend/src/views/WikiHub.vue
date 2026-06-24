@@ -132,8 +132,8 @@ onMounted(() => {
     <header class="hub-header">
       <div class="header-left">
         <div class="page-title-block">
-          <span class="title-prefix">//</span>
           <h1 class="page-title">WIKI BASE</h1>
+          <p class="page-subtitle">知识基座 — 编译后的结构化知识体系</p>
         </div>
         <div class="stat-block" v-if="store.total">
           <span class="stat-value">{{ store.total }}</span>
@@ -388,6 +388,14 @@ onMounted(() => {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.15em;
+}
+
+.page-subtitle {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
 }
 
 .stat-block {
