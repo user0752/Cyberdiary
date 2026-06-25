@@ -256,8 +256,10 @@ onMounted(async () => {
   <div class="compile-view">
     <header class="view-header">
       <div class="header-left">
-        <span class="title-prefix">//</span>
-        <h1 class="page-title">COMPILE ENGINE</h1>
+        <div>
+          <h1 class="page-title">COMPILE ENGINE</h1>
+          <p class="page-subtitle">编译引擎 — 多智能体协作知识编译</p>
+        </div>
       </div>
       <div class="mode-toggle">
         <button
@@ -483,6 +485,14 @@ onMounted(async () => {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.15em;
+}
+
+.page-subtitle {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
 }
 
 .mode-toggle {

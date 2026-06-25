@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/game'
 import { useSettingsStore } from '../stores/settings'
+
+const router = useRouter()
 
 const gameStore = useGameStore()
 const settingsStore = useSettingsStore()
@@ -86,6 +89,12 @@ const accuracyPercent = computed(() => {
 
 <template>
   <div class="game-arena">
+    <!-- Back to Game Box -->
+    <button class="btn-back" @click="router.push('/game')">
+      <span class="back-arrow">&larr;</span>
+      <span class="back-label">GAME BOX</span>
+    </button>
+
     <!-- Header -->
     <header class="arena-header">
       <div class="header-title">
@@ -93,7 +102,7 @@ const accuracyPercent = computed(() => {
         <h1>KNOWLEDGE ARENA</h1>
         <span class="title-tag">BETA</span>
       </div>
-      <p class="header-sub">// &#30693;&#35782;&#38450;&#24481;&#25112; - &#31561;&#24453;&#25377;&#25130;</p>
+      <p class="header-sub">知识防御战 - 等待拦截</p>
     </header>
 
     <!-- State: Setup -->
@@ -281,6 +290,38 @@ const accuracyPercent = computed(() => {
   max-width: 800px;
   margin: 0 auto;
   min-height: 100vh;
+}
+
+/* Back button */
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: 24px;
+}
+
+.btn-back:hover {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+  background: var(--accent-ghost);
+}
+
+.back-arrow {
+  font-size: 0.85rem;
+}
+
+.back-label {
+  font-weight: 600;
 }
 
 /* Header */

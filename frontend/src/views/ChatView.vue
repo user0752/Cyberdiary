@@ -50,8 +50,8 @@ function formatDate(dateStr: string) {
     <aside class="chat-sidebar">
       <div class="sidebar-header">
         <div class="header-title">
-          <span class="title-prefix">//</span>
           <span class="title-text">SESSIONS</span>
+          <p class="page-subtitle">对话记录 — AI 对话历史与上下文轨迹</p>
         </div>
         <button class="btn btn-primary new-chat-btn" @click="store.newConversation()">
           <span>+</span>
@@ -171,6 +171,14 @@ function formatDate(dateStr: string) {
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0.15em;
+}
+
+.page-subtitle {
+  font-family: var(--font-sans);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
 }
 
 .new-chat-btn {

@@ -50,6 +50,11 @@ const router = createRouter({
     {
       path: '/game',
       name: 'game',
+      component: () => import('../views/GameBox.vue'),
+    },
+    {
+      path: '/game/arena',
+      name: 'game-arena',
       component: () => import('../views/GameArena.vue'),
     },
     {

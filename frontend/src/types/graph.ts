@@ -70,6 +70,8 @@ export interface GraphMeta {
   maxConnectedComponent: number
   compilationId: string
   compiledAt: string
+  // Only present on aggregate graphs (cross-compilation); single-compile graphs omit this.
+  totalJobs?: number
 }
 
 // Root graph structure

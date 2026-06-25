@@ -187,8 +187,8 @@ onMounted(() => {
     <header class="flow-header">
       <div class="header-left">
         <div class="page-title-block">
-          <span class="title-prefix">//</span>
           <h1 class="page-title">MEMO STREAM</h1>
+          <p class="page-subtitle">灵感流 — 快速捕捉每一次闪念</p>
         </div>
         <div class="stat-block" v-if="store.total">
           <span class="stat-value">{{ store.total }}</span>
@@ -409,6 +409,14 @@ onMounted(() => {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.15em;
+}
+
+.page-subtitle {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
 }
 
 .stat-block {
