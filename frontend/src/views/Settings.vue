@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { useSettingsStore } from '../stores/settings'
+import { useToastStore } from '../stores/toast'
+import client from '../api/client'
 
 const settingsStore = useSettingsStore()
+const toast = useToastStore()
 
 interface ModelConfig {
   id: string
@@ -38,6 +41,34 @@ const providerOptions = [
   { value: 'mimo', label: 'Xiaomi MIMO', defaultEndpoint: 'https://api.xiaomimimo.com/v1', hint: 'mimo-v2.5-pro / mimo-v2-pro / mimo-v2.5 / mimo-v2-omni / mimo-v2-flash' },
 ]
 
+// P2-47: validation for the model form. Endpoint must be a valid http(s) URL
+// when provided; API key is required for non-ollama providers on create.
+const endpointError = computed(() => {
+  const v = form.value.endpoint.trim()
+  if (!v) return ''
+  // Allow http(s) and host:port (for local Ollama). Reject obvious typos.
+  try {
+    const u = new URL(v)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '仅支持 http/https 协议'
+    return ''
+  } catch {
+    return '请输入完整的 URL（例如 https://api.deepseek.com）'
+  }
+})
+
+const apiKeyError = computed(() => {
+  if (form.value.provider === 'ollama') return ''
+  if (editingModel.value && !form.value.api_key) return '' // keep existing on edit
+  if (!form.value.api_key.trim()) return 'API Key 不能为空'
+  return ''
+})
+
+const formValid = computed(() => {
+  if (!form.value.model_name.trim()) return false
+  if (endpointError.value || apiKeyError.value) return false
+  return true
+})
+
 const selectedProvider = computed(() => providerOptions.find(p => p.value === form.value.provider))
 const providerColors: Record<string, string> = {
   deepseek: 'var(--neon-cyan)',
@@ -70,6 +101,12 @@ const themes = [
     name: 'Synthwave',
     desc: '80s retrofuturistic style',
     preview: 'linear-gradient(135deg, #050110 0%, #1c1030 100%)'
+  },
+  {
+    id: 'auto',
+    name: 'Auto',
+    desc: '跟随系统深浅色偏好',
+    preview: 'linear-gradient(135deg, #05050a 50%, #fafafa 50%)'
   }
 ]
 
@@ -80,9 +117,8 @@ function setTheme(themeId: string) {
 async function loadModels() {
   loading.value = true
   try {
-    const res = await fetch('/api/v1/models')
-    const data = await res.json()
-    if (data.code === 0) models.value = data.data
+    const { data } = await client.get('/models')
+    models.value = data.data
     await settingsStore.fetchDefaults()
     defaultChatModel.value = settingsStore.defaultChatModel
     defaultCompileModel.value = settingsStore.defaultCompileModel
@@ -136,6 +172,8 @@ function openEdit(model: ModelConfig) {
 }
 
 async function saveModel() {
+  // P2-47: re-check computed guards in case the user hit Enter before blur.
+  if (!formValid.value) return
   const body: Record<string, string> = {
     provider: form.value.provider,
     model_name: form.value.model_name,
@@ -149,42 +187,32 @@ async function saveModel() {
       if (form.value.display_name) updateBody.display_name = form.value.display_name
       if (form.value.api_key) updateBody.api_key = form.value.api_key
       if (form.value.endpoint) updateBody.endpoint = form.value.endpoint
-      await fetch(`/api/v1/models/${editingModel.value.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updateBody),
-      })
+      await client.put(`/models/${editingModel.value.id}`, updateBody)
     } else {
-      await fetch('/api/v1/models', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      await client.post('/models', body)
     }
     showForm.value = false
     await loadModels()
   } catch (e: any) {
-    alert('Save failed: ' + (e.message || 'Unknown error'))
+    toast.error('保存失败: ' + (e.message || 'Unknown error'))
   }
 }
 
 async function toggleModel(model: ModelConfig) {
-  await fetch(`/api/v1/models/${model.id}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: !model.enabled }),
-  })
+  await client.put(`/models/${model.id}`, { enabled: !model.enabled })
   await loadModels()
 }
 
 async function deleteModel(id: string) {
   if (!confirm('Delete this model configuration?')) return
-  await fetch(`/api/v1/models/${id}`, { method: 'DELETE' })
+  await client.delete(`/models/${id}`)
   await loadModels()
 }
 
 async function testModel(id: string) {
   testResults.value[id] = 'Testing...'
   try {
-    const res = await fetch(`/api/v1/models/${id}/test`, { method: 'POST' })
-    const data = await res.json()
+    const { data } = await client.post(`/models/${id}/test`)
     testResults.value[id] = data.data?.ok ? `SUCCESS: ${data.data.message}` : `FAILED: ${data.data?.message || 'Connection failed'}`
   } catch {
     testResults.value[id] = 'FAILED: Request error'
@@ -193,14 +221,13 @@ async function testModel(id: string) {
 
 async function detectOllama() {
   try {
-    const res = await fetch('/api/v1/models/ollama/list')
-    const data = await res.json()
+    const { data } = await client.get('/models/ollama/list')
     if (data.data?.length) {
-      alert('Detected Ollama models:\n' + data.data.map((m: any) => m.name).join('\n'))
+      toast.success('检测到 Ollama 模型:\n' + data.data.map((m: any) => m.name).join('\n'), 8000)
     } else {
-      alert('No local Ollama models detected. Make sure Ollama is running.')
+      toast.warning('未检测到本地 Ollama 模型，请确认 Ollama 正在运行。')
     }
-  } catch { alert('Cannot connect to Ollama') }
+  } catch { toast.error('无法连接到 Ollama') }
 }
 
 onMounted(loadModels)
@@ -358,7 +385,7 @@ onMounted(loadModels)
     </div>
 
     <Teleport to="body">
-      <div v-if="showForm" class="dialog-overlay" @click.self="showForm = false">
+      <div v-if="showForm" class="dialog-overlay" @click.self="showForm = false" @keydown.esc.window="showForm = false">
         <div class="dialog">
           <div class="dialog-header">
             <h2>{{ editingModel ? '[EDIT]' : '[NEW]' }} MODEL CONFIG</h2>
@@ -380,22 +407,31 @@ onMounted(loadModels)
             <label>DISPLAY NAME</label>
             <input v-model="form.display_name" class="field" placeholder="Optional, for UI display" />
 
-            <label v-if="form.provider !== 'ollama'">API KEY</label>
-            <input
-              v-if="form.provider !== 'ollama'"
-              v-model="form.api_key"
-              type="password"
-              class="field"
-              :placeholder="editingModel ? 'Leave empty to keep current' : 'Enter API Key'"
-            />
+            <template v-if="form.provider !== 'ollama'">
+              <label>API KEY</label>
+              <input
+                v-model="form.api_key"
+                type="password"
+                class="field"
+                :class="{ invalid: apiKeyError }"
+                :placeholder="editingModel ? 'Leave empty to keep current' : 'Enter API Key'"
+              />
+              <span v-if="apiKeyError" class="field-error">{{ apiKeyError }}</span>
+            </template>
 
             <label>API ENDPOINT</label>
-            <input v-model="form.endpoint" class="field" :placeholder="providerOptions.find(p => p.value === form.provider)?.defaultEndpoint" />
+            <input
+              v-model="form.endpoint"
+              class="field"
+              :class="{ invalid: endpointError }"
+              :placeholder="providerOptions.find(p => p.value === form.provider)?.defaultEndpoint"
+            />
+            <span v-if="endpointError" class="field-error">{{ endpointError }}</span>
           </div>
 
           <div class="dialog-footer">
             <button class="btn btn-ghost" @click="showForm = false">CANCEL</button>
-            <button class="btn btn-primary" @click="saveModel" :disabled="!form.model_name.trim()">
+            <button class="btn btn-primary" @click="saveModel" :disabled="!formValid">
               SAVE
             </button>
           </div>
@@ -554,10 +590,6 @@ onMounted(loadModels)
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 .loading span {
   font-family: var(--font-mono);
   font-size: 0.75rem;
@@ -615,7 +647,7 @@ onMounted(loadModels)
   font-weight: 600;
   letter-spacing: 0.08em;
   background: rgba(255, 71, 87, 0.1);
-  color: #ff4757;
+  color: var(--error);
   border: 1px solid rgba(255, 71, 87, 0.2);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -667,7 +699,7 @@ onMounted(loadModels)
 }
 
 .test-result.success .result-icon { color: var(--neon-green); }
-.test-result:not(.success) .result-icon { color: #ff4757; }
+.test-result:not(.success) .result-icon { color: var(--error); }
 
 .result-text {
   color: var(--text-secondary);
@@ -708,10 +740,26 @@ onMounted(loadModels)
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 select.field {
   cursor: pointer;
+}
+
+/* P2-47: inline validation state for endpoint + api_key */
+.field.invalid {
+  border-color: var(--error);
+}
+
+.field.invalid:focus {
+  box-shadow: 0 0 0 2px rgba(255, 71, 87, 0.2);
+}
+
+.field-error {
+  font-size: 0.7rem;
+  color: var(--error);
+  margin-top: 2px;
 }
 
 .field-hint {

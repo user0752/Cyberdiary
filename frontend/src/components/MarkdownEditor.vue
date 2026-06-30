@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { EditorView, keymap, lineNumbers, placeholder as cmPlaceholder } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { defaultKeymap } from '@codemirror/commands'
@@ -48,6 +48,13 @@ onMounted(() => {
     }),
     parent: editorRef.value,
   })
+})
+
+// Destroy the CodeMirror view on unmount to avoid dangling DOM listeners
+// and EditorState lingering in memory after the component is gone.
+onUnmounted(() => {
+  view?.destroy()
+  view = null
 })
 
 watch(() => props.modelValue, (val) => {

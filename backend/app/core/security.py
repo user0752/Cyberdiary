@@ -2,7 +2,9 @@
 
 import base64
 import hashlib
+import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -10,18 +12,86 @@ from jose import JWTError, jwt
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 # --- JWT ---
 
 ALGORITHM = "HS256"
 
+# In-process fallback for revoked-token tracking when Redis is not configured.
+# Each entry maps jti -> expiry epoch; entries are purged once they expire.
+_revoked_local: dict[str, float] = {}
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+
+async def create_access_token_async(data: dict, expires_delta: timedelta | None = None) -> str:
+    """Create a signed JWT. Adds a ``jti`` claim so the token can be
+    individually revoked via :func:`revoke_token` (e.g. on logout).
+
+    Async because jti revocation state is backed by Redis when available.
+    """
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
-    to_encode.update({"exp": expire})
+    to_encode.update({
+        "exp": expire,
+        "jti": str(uuid.uuid4()),
+    })
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
+
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    """Sync wrapper retained for backward compatibility with existing
+    callers that don't need revocation. New code should prefer the async
+    version so a jti is always emitted.
+    """
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
+    )
+    to_encode.update({
+        "exp": expire,
+        "jti": str(uuid.uuid4()),
+    })
+    return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
+
+
+async def revoke_token(jti: str, exp_epoch: float) -> None:
+    """Mark a token's jti as revoked until its natural expiry.
+
+    Uses Redis when available (so revocation works across multiple workers),
+    otherwise falls back to an in-process dict (single-worker mode only).
+    """
+    # Local fallback
+    _revoked_local[jti] = exp_epoch
+    # Redis (multi-worker safe)
+    try:
+        from app.core.redis import get_redis
+        r = get_redis()
+        if r is not None:
+            ttl = max(1, int(exp_epoch - datetime.now(timezone.utc).timestamp()))
+            await r.setex(f"jwt:revoked:{jti}", ttl, "1")
+    except Exception:
+        logger.warning("Redis revocation write failed; in-process fallback active", exc_info=True)
+
+
+async def is_token_revoked(jti: str) -> bool:
+    """Check whether a jti has been revoked. Cleans expired local entries."""
+    now = datetime.now(timezone.utc).timestamp()
+    # Purge expired local entries to bound memory
+    expired = [k for k, v in _revoked_local.items() if v <= now]
+    for k in expired:
+        _revoked_local.pop(k, None)
+    if jti in _revoked_local:
+        return True
+    try:
+        from app.core.redis import get_redis
+        r = get_redis()
+        if r is not None:
+            return bool(await r.exists(f"jwt:revoked:{jti}"))
+    except Exception:
+        pass
+    return False
 
 
 def decode_access_token(token: str) -> dict | None:

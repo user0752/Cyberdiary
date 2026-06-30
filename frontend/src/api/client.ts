@@ -53,10 +53,18 @@ client.interceptors.response.use(
     // Normalize error message from response body when available
     const statusCode = err.response?.status || 0
     const detail = err.response?.data?.message || err.message
-    // Auto-clear token on 401 so the user is redirected to login
+    // Auto-clear token on 401 and redirect to /login so the user can
+    // re-authenticate instead of being stuck on a page that keeps 401-ing.
     if (statusCode === 401) {
       localStorage.removeItem('cybernote-token')
       localStorage.removeItem('cybernote-username')
+      // Avoid importing the router instance circularly — read location.
+      // Skip redirect if already on /login (e.g. bad credentials).
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        // Use hash-friendly URL so Vue Router picks it up uniformly.
+        const next = encodeURIComponent(window.location.pathname + window.location.search)
+        window.location.assign(`/login?redirect=${next}`)
+      }
     }
     return Promise.reject(new ApiError(detail, statusCode, err.response?.data))
   },

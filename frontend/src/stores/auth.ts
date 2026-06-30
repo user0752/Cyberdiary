@@ -54,7 +54,10 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function logout() {
+  async function logout() {
+    // Notify backend to revoke the token's jti (best-effort), then clear
+    // local state regardless of the response.
+    await authApi.logout()
     clearAuth()
   }
 

@@ -1,0 +1,40 @@
+# Version control
+.git
+.gitignore
+
+# Python virtual environments (platform-specific, must not be baked into image)
+venv/
+.venv
+env/
+
+# Environment files (contain secrets — must never enter the image layer)
+.env
+.env.*
+!.env.example
+
+# Local data (SQLite DBs, LLM cache, compiled wiki files)
+data/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Tests (not needed in production image)
+tests/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Alembic version files are needed for migrations — do NOT exclude alembic/

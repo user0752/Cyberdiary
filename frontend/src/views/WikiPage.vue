@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWikiStore } from '../stores/wiki'
+import { useToastStore } from '../stores/toast'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import MarkdownEditor from '../components/MarkdownEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
 const store = useWikiStore()
+const toast = useToastStore()
 
 const editing = ref(false)
 const editTitle = ref('')
@@ -18,6 +20,73 @@ const editType = ref('')
 
 const showDeleteConfirm = ref(false)
 const deleting = ref(false)
+
+// --- Draft autosave + unsaved-changes guard (P0-5) ---
+const DRAFT_KEY = 'cybernote-wiki-draft'
+const initialTitle = ref('')
+const initialContent = ref('')
+const initialSummary = ref('')
+const initialTags = ref('')
+const initialType = ref('')
+
+const isDirty = computed(
+  () =>
+    editTitle.value !== initialTitle.value ||
+    editContent.value !== initialContent.value ||
+    editSummary.value !== initialSummary.value ||
+    editTags.value !== initialTags.value ||
+    editType.value !== initialType.value,
+)
+
+interface WikiDraft {
+  slug: string
+  title: string
+  content: string
+  summary: string
+  tags: string
+  type: string
+}
+
+function saveDraft() {
+  const draft: WikiDraft = {
+    slug: (route.params.slug as string) || '',
+    title: editTitle.value,
+    content: editContent.value,
+    summary: editSummary.value,
+    tags: editTags.value,
+    type: editType.value,
+  }
+  localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+}
+
+function loadDraft(): WikiDraft | null {
+  const raw = localStorage.getItem(DRAFT_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as WikiDraft
+  } catch {
+    return null
+  }
+}
+
+function clearDraft() {
+  localStorage.removeItem(DRAFT_KEY)
+}
+
+function snapshotInitial() {
+  initialTitle.value = editTitle.value
+  initialContent.value = editContent.value
+  initialSummary.value = editSummary.value
+  initialTags.value = editTags.value
+  initialType.value = editType.value
+}
+
+let draftTimer: ReturnType<typeof setTimeout> | null = null
+watch([editTitle, editContent, editSummary, editTags, editType], () => {
+  if (!editing.value) return
+  if (draftTimer) clearTimeout(draftTimer)
+  draftTimer = setTimeout(saveDraft, 500)
+})
 
 const typeLabels: Record<string, string> = {
   concept: '概念',
@@ -48,11 +117,32 @@ function parseTags(tagsJson: string): string[] {
 
 function startEdit() {
   if (!store.currentPage) return
-  editTitle.value = store.currentPage.title
-  editContent.value = store.currentPage.content
-  editSummary.value = store.currentPage.summary || ''
-  editTags.value = parseTags(store.currentPage.tags).join(', ')
-  editType.value = store.currentPage.wiki_type
+  const slug = (route.params.slug as string) || ''
+  // Offer to restore a draft saved for THIS page, if one exists.
+  const draft = loadDraft()
+  if (draft && draft.slug === slug && draft.content) {
+    if (confirm('检测到该页面的未保存草稿，是否恢复？')) {
+      editTitle.value = draft.title
+      editContent.value = draft.content
+      editSummary.value = draft.summary
+      editTags.value = draft.tags
+      editType.value = draft.type
+    } else {
+      clearDraft()
+      editTitle.value = store.currentPage.title
+      editContent.value = store.currentPage.content
+      editSummary.value = store.currentPage.summary || ''
+      editTags.value = parseTags(store.currentPage.tags).join(', ')
+      editType.value = store.currentPage.wiki_type
+    }
+  } else {
+    editTitle.value = store.currentPage.title
+    editContent.value = store.currentPage.content
+    editSummary.value = store.currentPage.summary || ''
+    editTags.value = parseTags(store.currentPage.tags).join(', ')
+    editType.value = store.currentPage.wiki_type
+  }
+  snapshotInitial()
   editing.value = true
 }
 
@@ -70,10 +160,13 @@ async function saveEdit() {
     tags,
     wiki_type: editType.value,
   })
+  clearDraft()
   editing.value = false
 }
 
 function cancelEdit() {
+  if (isDirty.value && !confirm('有未保存的修改，确定要取消吗？')) return
+  clearDraft()
   editing.value = false
 }
 
@@ -84,7 +177,7 @@ async function handleDelete() {
     await store.deletePage(store.currentPage.slug)
     router.push('/wiki')
   } catch (e) {
-    alert('删除失败，请重试')
+    toast.error('删除失败，请重试')
   } finally {
     deleting.value = false
     showDeleteConfirm.value = false
@@ -105,21 +198,35 @@ function goToPage(slug: string) {
 
 onMounted(loadPage)
 
-watch(() => route.params.slug, loadPage)
+// When navigating to another wiki page, exit edit mode. Any unsaved draft
+// is already persisted to localStorage and will be offered for restore when
+// the user re-opens the editor on that page.
+watch(() => route.params.slug, () => {
+  editing.value = false
+  loadPage()
+})
 </script>
 
 <template>
   <div class="wiki-page-view">
     <!-- Loading -->
     <div v-if="store.pageLoading" class="loading-indicator">
-      <span>加载中...</span>
+      <div class="loading-spinner"></div>
+      <span>LOADING PAGE...</span>
     </div>
 
     <!-- Not Found -->
     <div v-else-if="!store.currentPage" class="empty-state">
-      <span class="empty-icon">📄</span>
-      <p>Wiki 页面不存在</p>
-      <button class="btn btn-ghost" @click="router.push('/wiki')">返回 Wiki 列表</button>
+      <div class="empty-visual">
+        <svg viewBox="0 0 80 80" fill="none">
+          <rect x="15" y="15" width="50" height="50" rx="4" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+          <line x1="25" y1="30" x2="55" y2="30" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+          <line x1="25" y1="40" x2="45" y2="40" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+        </svg>
+      </div>
+      <p>WIKI PAGE NOT FOUND</p>
+      <p class="empty-hint">该页面可能已被删除或从未存在</p>
+      <button class="btn btn-primary" @click="router.push('/wiki')">返回 Wiki 列表</button>
     </div>
 
     <!-- Page Content -->
@@ -251,7 +358,7 @@ watch(() => route.params.slug, loadPage)
 
     <!-- Delete Confirmation Modal -->
     <Teleport to="body">
-      <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
+      <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false" @keydown.esc.window="showDeleteConfirm = false">
         <div class="modal-box">
           <h3 class="modal-title">确认删除</h3>
           <p class="modal-text">
@@ -278,15 +385,61 @@ watch(() => route.params.slug, loadPage)
 
 .loading-indicator {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  gap: 16px;
   height: 100%;
   color: var(--text-muted);
 }
 
-.empty-icon {
-  font-size: 3rem;
-  opacity: 0.5;
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.loading-indicator span {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  padding: 40px;
+}
+
+.empty-visual {
+  width: 80px;
+  height: 80px;
+  color: var(--text-ghost);
+}
+
+.empty-state p {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.empty-hint {
+  font-size: 0.75rem !important;
+  color: var(--text-ghost) !important;
+  margin-top: 4px;
+}
+
+.empty-state .btn {
+  margin-top: 12px;
 }
 
 .page-container {
@@ -437,11 +590,11 @@ watch(() => route.params.slug, loadPage)
 .delete-btn {
   margin-top: 4px;
   font-size: 0.85rem;
-  color: #ef4444;
+  color: var(--error);
 }
 
 .delete-btn:hover {
-  background: #ef444420;
+  background: rgba(239, 68, 68, 0.13);
 }
 
 .header-actions {
@@ -491,7 +644,7 @@ watch(() => route.params.slug, loadPage)
 }
 
 .btn-danger {
-  background: #ef4444;
+  background: var(--error);
   color: #fff;
   border: none;
   border-radius: var(--radius-sm, 6px);
@@ -502,7 +655,8 @@ watch(() => route.params.slug, loadPage)
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--error);
+  filter: brightness(1.15);
 }
 
 .btn-danger:disabled {

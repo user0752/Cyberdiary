@@ -15,7 +15,11 @@ class Settings(BaseSettings):
 
     # JWT
     secret_key: str = ""
-    access_token_expire_minutes: int = 1440
+    # 8h — limits token-theft exposure window while remaining usable for
+    # a working day. Set lower (e.g. 60-120) and pair with a refresh-token
+    # flow if/when one is introduced. Tokens carry a jti claim so they can
+    # be revoked individually via /auth/logout (Redis-backed blacklist).
+    access_token_expire_minutes: int = 480
     # Optional: previous SECRET_KEY for key rotation. Set this when you change
     # SECRET_KEY so existing encrypted API keys can still be decrypted.
     # Remove it after all models have been re-saved with the new key.

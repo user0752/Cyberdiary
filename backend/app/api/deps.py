@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import async_session
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, is_token_revoked
 from app.models.user import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -41,6 +41,12 @@ async def get_current_user(
     payload = decode_access_token(credentials.credentials)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    # Reject revoked tokens (logout). Falls through silently if jti is absent
+    # (older tokens without jti — only an issue during rolling upgrade).
+    jti = payload.get("jti")
+    if jti and await is_token_revoked(jti):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked")
 
     from sqlalchemy import select
     result = await db.execute(select(User).where(User.id == payload.get("sub")))

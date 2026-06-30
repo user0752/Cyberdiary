@@ -7,22 +7,53 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./data/cybernote.db
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env or environment}
       - AUTH_MODE=${AUTH_MODE:-jwt}
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
     volumes:
       - ./backend/data:/app/data
-    ports:
-      - "8000:8000"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    # Linux: resolve host.docker.internal to the host gateway so the
+    # container can reach an Ollama instance running on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # No public port mapping — nginx is the only public entry point.
+    # Internal service reachable from sibling containers as `backend:8000`.
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # 4G server: cap backend so Redis/nginx + OS keep headroom.
+          # LLM compile spikes can otherwise trigger the OOM killer.
+          memory: 2g
+          cpus: '3'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
+    # Require authentication so a publicly reachable host cannot read/write
+    # the cache. REDIS_PASSWORD must be set in the host environment.
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    # No public port mapping — backend talks to Redis on the internal network.
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   nginx:
     build:
@@ -33,7 +64,13 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
 volumes:
   redis-data:

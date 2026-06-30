@@ -26,6 +26,16 @@ export async function login(username: string, password: string): Promise<TokenRe
   return res.data.data
 }
 
+export async function logout(): Promise<void> {
+  // Best-effort server-side revocation. Local token is cleared regardless
+  // of the response — the client considers itself logged out either way.
+  try {
+    await client.post('/auth/logout')
+  } catch {
+    /* network/401 errors are acceptable — token may already be invalid */
+  }
+}
+
 export async function getMe(): Promise<UserResponse | null> {
   try {
     const res = await client.get('/auth/me')

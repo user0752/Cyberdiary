@@ -27,6 +27,10 @@ def get_redis():
             _redis = redis_async.from_url(
                 settings.redis_url,
                 decode_responses=True,
+                socket_timeout=5,
+                socket_connect_timeout=5,
+                health_check_interval=30,
+                max_connections=20,
             )
             logger.info("Redis client initialized: %s", settings.redis_url)
         except Exception:

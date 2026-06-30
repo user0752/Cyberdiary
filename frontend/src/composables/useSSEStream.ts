@@ -21,7 +21,14 @@ export async function* streamSSE<T>(
   url: string,
   options?: SSEStreamOptions,
 ): AsyncGenerator<T, void, unknown> {
-  const response = await fetch(url, options)
+  // Attach JWT so SSE streams are authenticated the same way as axios calls.
+  // Callers that already set Authorization are respected (not overwritten).
+  const headers = new Headers(options?.headers)
+  const token = localStorage.getItem('cybernote-token')
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  const response = await fetch(url, { ...options, headers })
 
   if (!response.ok) {
     let detail = `HTTP ${response.status}`
