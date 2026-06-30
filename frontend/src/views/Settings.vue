@@ -105,7 +105,7 @@ const themes = [
   {
     id: 'auto',
     name: 'Auto',
-    desc: '跟随系统深浅色偏好',
+    desc: 'Follow system light/dark preference',
     preview: 'linear-gradient(135deg, #05050a 50%, #fafafa 50%)'
   }
 ]
