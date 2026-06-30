@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
 @import './variables.css';
 
 *,
@@ -143,6 +142,33 @@ input::placeholder, textarea::placeholder {
   50% { border-color: var(--accent-dim); }
 }
 
+/* P2-56: shared keyframes used across multiple views. Previously each
+   component redefined its own copy in <style scoped>, which is harmless
+   but bloats the bundle. Define once here, reference everywhere. */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes loading {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -204,7 +230,7 @@ input::placeholder, textarea::placeholder {
 }
 
 .btn-danger {
-  color: #ff4757;
+  color: var(--error);
 }
 
 .btn-danger:hover {

@@ -67,6 +67,13 @@ const router = createRouter({
       name: 'graph',
       component: () => import('../views/KnowledgeGraphView.vue'),
     },
+    // P2-40: catch-all 404 fallback. Must be last — Vue Router matches
+    // routes in order, so any previously-unmatched path lands here.
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('../views/NotFound.vue'),
+    },
   ],
 })
 

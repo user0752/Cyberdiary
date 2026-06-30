@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.database import async_session
 from app.services import llm_service
-from app.utils.prompts import load_prompt
+from app.utils.prompts import load_prompt, safe_substitute, strip_json_fence
 
 logger = logging.getLogger(__name__)
 
@@ -34,21 +34,21 @@ async def linker_agent(state):
         return state
 
     prompt_template = load_prompt("linker.md")
-    prompt = prompt_template.format(
+    prompt = safe_substitute(
+        prompt_template,
         current_wiki=state.get("wiki_revised", state["wiki_draft"]),
         existing_wikis=json.dumps(existing, ensure_ascii=False),
     )
 
     response = await llm_service.chat_completion(
         state["_model_config"],
-        messages=[{"role": "system", "content": prompt}],
+        # "user" role — see writer_agent.py for rationale.
+        messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
         timeout=30,
     )
     try:
-        raw = response.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("\n```", 1)[0]
+        raw = strip_json_fence(response.choices[0].message.content)
         result = json.loads(raw)
     except (json.JSONDecodeError, KeyError, AttributeError) as e:
         logger.warning("Linker JSON parse failed: %s", e)

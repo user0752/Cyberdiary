@@ -3,11 +3,13 @@ import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWikiStore } from '../stores/wiki'
 import { useSettingsStore } from '../stores/settings'
+import { useToastStore } from '../stores/toast'
 import ForceGraph from '../components/ForceGraph.vue'
 
 const router = useRouter()
 const store = useWikiStore()
 const settingsStore = useSettingsStore()
+const toast = useToastStore()
 
 const viewMode = ref<'list' | 'graph'>('list')
 const activeType = ref<string>('')
@@ -47,6 +49,16 @@ const displayPages = computed(() => {
 const filteredPages = computed(() => {
   if (!activeType.value) return displayPages.value
   return displayPages.value.filter((p) => p.wiki_type === activeType.value)
+})
+
+// P2-41: precompute parsed tags per page so the template doesn't call
+// parseTags(page.tags) twice (v-if + v-for) on every render cycle.
+const pageTagsMap = computed(() => {
+  const m = new Map<string, string[]>()
+  for (const page of filteredPages.value) {
+    m.set(page.id, parseTags(page.tags))
+  }
+  return m
 })
 
 function setType(type: string) {
@@ -105,7 +117,7 @@ async function handleCompile() {
       settingsStore.defaultCompileModel = fallback.id
       settingsStore.saveDefaults(settingsStore.defaultChatModel, fallback.id)
     } else {
-      alert('请先在设置中配置并启用一个编译模型')
+      toast.warning('请先在设置中配置并启用一个编译模型')
       return
     }
   }
@@ -284,6 +296,13 @@ onMounted(() => {
           </div>
           <p>{{ showSearch ? 'NO MATCHES FOUND' : 'NO WIKI PAGES YET' }}</p>
           <p class="empty-hint">{{ showSearch ? 'Try different keywords' : 'Compile memos to generate Wiki pages' }}</p>
+          <button
+            v-if="!showSearch"
+            class="btn btn-primary"
+            @click="showCompilePanel = true"
+          >
+            START COMPILE
+          </button>
         </div>
 
         <div class="wiki-cards">
@@ -307,8 +326,8 @@ onMounted(() => {
 
             <p class="card-summary" v-if="page.summary">{{ page.summary }}</p>
 
-            <div class="card-tags" v-if="parseTags(page.tags).length">
-              <span v-for="tag in parseTags(page.tags)" :key="tag" class="cyber-tag">{{ tag }}</span>
+            <div class="card-tags" v-if="pageTagsMap.get(page.id)?.length">
+              <span v-for="tag in pageTagsMap.get(page.id)" :key="tag" class="cyber-tag">{{ tag }}</span>
             </div>
 
             <div class="card-meta">
@@ -532,11 +551,6 @@ onMounted(() => {
   animation: slideDown 200ms ease;
 }
 
-@keyframes slideDown {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -724,10 +738,6 @@ onMounted(() => {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .loading-indicator span {

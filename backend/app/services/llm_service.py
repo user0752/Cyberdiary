@@ -107,19 +107,47 @@ async def chat_completion(
 
     model_name = kw.get("model", "unknown")
 
-    try:
-        result = await asyncio.wait_for(
-            litellm.acompletion(**kw),
-            timeout=hard_timeout + 10,  # 10s buffer: litellm timeout fires first
-        )
-    except asyncio.TimeoutError:
-        logger.error(
-            "LLM call timed out after %.1fs to model %s",
-            hard_timeout, model_name,
-        )
-        raise asyncio.TimeoutError(
-            f"LLM request to {model_name} timed out after {hard_timeout}s"
-        )
+    # P2-16: retry transient LLM failures once. The agent pipeline already
+    # has tenacity-based retries via AgentErrorHandler, but the chat endpoint
+    # (used by ChatView) had none — a single APIConnectionError or 5xx from
+    # the provider would surface directly to the user. Streaming calls are
+    # NOT retried here because partial output may already have been sent.
+    _RETRYABLE = (
+        litellm.exceptions.APIConnectionError,
+        litellm.exceptions.Timeout,
+        litellm.exceptions.ServiceUnavailableError,
+        litellm.exceptions.InternalServerError,
+    )
+
+    last_exc: Exception | None = None
+    for attempt in (1, 2):
+        try:
+            result = await asyncio.wait_for(
+                litellm.acompletion(**kw),
+                timeout=hard_timeout + 10,  # 10s buffer: litellm timeout fires first
+            )
+            break
+        except asyncio.TimeoutError:
+            logger.error(
+                "LLM call timed out after %.1fs to model %s",
+                hard_timeout, model_name,
+            )
+            raise asyncio.TimeoutError(
+                f"LLM request to {model_name} timed out after {hard_timeout}s"
+            )
+        except _RETRYABLE as e:
+            last_exc = e
+            if attempt == 1 and not stream:
+                logger.warning(
+                    "LLM call to %s failed (%s), retrying once", model_name, type(e).__name__
+                )
+                await asyncio.sleep(1.0)
+                continue
+            raise
+    else:
+        # Should not reach here, but be defensive.
+        if last_exc:
+            raise last_exc
 
     # Cache non-streaming responses
     if not stream and hasattr(result, "model_dump_json"):
@@ -142,7 +170,10 @@ async def test_model_connection(model_config: dict) -> dict:
         content = response.choices[0].message.content if response.choices else ""
         return {"ok": True, "message": f"Connected. Response: {content[:50]}"}
     except Exception as e:
-        return {"ok": False, "message": str(e)}
+        # litellm exceptions often embed endpoint URL, partial API key, or
+        # internal provider details — sanitize before exposing to the client.
+        from app.utils.sanitize import sanitize_error_message
+        return {"ok": False, "message": sanitize_error_message(str(e))}
 
 
 async def list_ollama_models() -> list[dict]:

@@ -291,7 +291,11 @@ class TestAgentErrorHandler:
 
         result = handler._fallback("reviewer_accuracy", state, None)
         assert len(result["reviews"]) == 1
-        assert result["reviews"][0]["score"] == 0.0
+        # P2-21: fallback score is now 7.0 (neutral, near pass threshold)
+        # instead of 0.0/5.0, so a single failed reviewer does not
+        # force-loop the draft to max_revisions when the other reviewer
+        # is healthy. 5.0 was too low — one timeout → 6.5 avg → revise.
+        assert result["reviews"][0]["score"] == 7.0
         assert result["reviews"][0].get("fallback") is True
         assert "degraded_agents" in result
         assert "reviewer_accuracy" in result["degraded_agents"]
@@ -338,7 +342,9 @@ class TestArbiterWeightedScoring:
         assert result["final_score"] == 7.8
         assert result["accuracy_score"] == 9.0
         assert result["readability_score"] == 6.0
-        assert result["passed"] is True  # 7.8 >= 7.0
+        # P2-19: threshold is now 8.0 (matches the LLM arbiter path), so
+        # 7.8 is a REVISE, not a PASS.
+        assert result["passed"] is False  # 7.8 < 8.0
 
     def test_accuracy_only(self):
         from app.agents.arbiter_agent import _compute_weighted_score
@@ -399,7 +405,21 @@ class TestArbiterWeightedScoring:
         ]
         result = _compute_weighted_score(reviews)
         assert result["final_score"] == 7.0
-        assert result["passed"] is True  # >= 7.0 (threshold)
+        # P2-19: default threshold raised to 8.0 to match the LLM arbiter
+        # path; 7.0 is now a REVISE.
+        assert result["passed"] is False  # 7.0 < 8.0
+
+    def test_pass_threshold_explicit_override(self):
+        """Callers can override pass_threshold (the LLM arbiter path reads
+        it from compilation_config). Verify the override is honored so the
+        fallback and LLM paths stay consistent for the same threshold."""
+        from app.agents.arbiter_agent import _compute_weighted_score
+
+        reviews = [
+            {"score": 7.0, "agent": "accuracy", "feedback": "borderline"},
+        ]
+        result = _compute_weighted_score(reviews, pass_threshold=7.0)
+        assert result["passed"] is True  # 7.0 >= 7.0 (explicit override)
 
 
 # ============================================================================

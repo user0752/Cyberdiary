@@ -25,7 +25,7 @@ from app.models.wiki import WikiLink, WikiPage
 from app.services import llm_service
 from app.services import wiki_service
 from app.services.progress_tracker import safe_progress_update
-from app.utils.markdown import slugify, parse_front_matter, extract_wiki_links
+from app.utils.markdown import slugify, parse_front_matter, extract_wiki_links, normalize_markdown_headings
 from app.utils.db import tag_contains
 from app.utils.sanitize import sanitize_error_message
 
@@ -73,6 +73,10 @@ def parse_compile_output(output: str, source_memo_ids: list[str]) -> list[dict]:
                    "summary": "...", "tags": [...]}]}
     Falls back to legacy ``===``-separated format with YAML front matter.
     """
+    # Normalize: split headings jammed onto a single line (LLM artifact)
+    # so title extraction and Markdown rendering both work correctly.
+    output = normalize_markdown_headings(output)
+
     # 1) Try JSON parsing first
     try:
         parsed = json.loads(output.strip())
@@ -362,13 +366,30 @@ async def _resolve_compile_model(db: AsyncSession, model_id: str) -> dict:
 
 
 def _build_compile_messages(memos: list[Memo]) -> list[dict]:
-    """Build the system + user messages for the compilation LLM call."""
+    """Build the system + user messages for the compilation LLM call.
+
+    Uses str.replace for placeholder substitution instead of str.format so
+    that curly braces inside user memo content (e.g. code snippets,
+    templating examples) cannot raise KeyError/IndexError and crash the
+    whole compile pipeline. The memo content is also wrapped in an
+    explicit content fence so the LLM is told to treat it as data, not
+    instructions — a basic prompt-injection mitigation.
+    """
     memo_content = '\n\n---\n\n'.join([
         f'### Memo {i+1}\n{m.content}' for i, m in enumerate(memos)
     ])
     system_prompt = (PROMPTS_DIR / 'compile_system.md').read_text(encoding='utf-8')
     user_template = (PROMPTS_DIR / 'compile_user.md').read_text(encoding='utf-8')
-    user_prompt = user_template.format(memo_count=len(memos), memo_content=memo_content)
+    # Safe substitution: user content may contain {placeholders} or JSON
+    # braces — str.format would crash. Replace named tokens only.
+    user_prompt = (
+        user_template
+        .replace('{memo_count}', str(len(memos)))
+        .replace(
+            '{memo_content}',
+            f'<user_content>\n{memo_content}\n</user_content>',
+        )
+    )
     return [
         {'role': 'system', 'content': system_prompt},
         {'role': 'user', 'content': user_prompt},

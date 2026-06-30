@@ -57,8 +57,17 @@ class AgentErrorHandler:
             state["research_results"] = [{"entities": [], "relations": [], "key_topics": []}]
         if "reviewer" in agent:
             state.setdefault("reviews", [])
+            # P2-21: score 0.0 here used to guarantee the arbiter would fail
+            # the draft → trigger a revision → reviewer fails again → 0.0 →
+            # loop until max_revisions, wasting LLM calls. 7.0 is a neutral
+            # "quality unverified" score: close enough to the pass threshold
+            # (8.0) that a single healthy reviewer can still carry the draft
+            # to pass, but two failed reviewers still trigger a revision.
+            # Using 5.0 (previous value) caused unnecessary revision loops
+            # whenever one reviewer timed out — see multi-agent compile logs
+            # where accuracy timeout → fallback 5.0 → arbiter 6.5 → revise.
             state["reviews"].append({
-                "score": 0.0,
+                "score": 7.0,
                 "feedback": "reviewer unavailable (fallback) — quality not verified",
                 "fallback": True,
             })

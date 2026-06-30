@@ -4,7 +4,7 @@ import json
 import logging
 
 from app.services import llm_service
-from app.utils.prompts import load_prompt
+from app.utils.prompts import load_prompt, safe_substitute, strip_json_fence
 
 logger = logging.getLogger(__name__)
 
@@ -24,20 +24,20 @@ async def integrator_agent(state):
                 "relations": (r.get("relations") or [])[:10],
                 "key_topics": (r.get("key_topics") or [])[:10],
             })
-    prompt = prompt_template.format(
+    prompt = safe_substitute(
+        prompt_template,
         research_results=json.dumps(trimmed, ensure_ascii=False),
     )
 
     response = await llm_service.chat_completion(
         state["_model_config"],
-        messages=[{"role": "system", "content": prompt}],
+        # "user" role — see writer_agent.py for rationale.
+        messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
         timeout=90,  # Large merged prompt — needs more time
     )
     try:
-        raw = response.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("\n```", 1)[0]
+        raw = strip_json_fence(response.choices[0].message.content)
         result = json.loads(raw)
     except (json.JSONDecodeError, KeyError, AttributeError) as e:
         logger.error("Integrator JSON parse failed: %s", e)

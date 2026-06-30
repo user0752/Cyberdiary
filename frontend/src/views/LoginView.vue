@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 const mode = ref<'login' | 'register'>('login')
@@ -11,9 +12,41 @@ const username = ref('')
 const password = ref('')
 const errorMsg = ref('')
 
+// P2-46: client-side validation aligned with backend constraints.
+// Username: 3-100 chars, [a-z0-9_-]. Password: min 6 chars on register,
+// non-empty on login (the backend re-validates either way).
+const USERNAME_RE = /^[a-z0-9_-]{3,100}$/
+
+const usernameError = computed(() => {
+  const v = username.value.trim()
+  if (!v) return ''
+  if (!USERNAME_RE.test(v)) return '用户名只能包含小写字母、数字、下划线、连字符（3-100 字符）'
+  return ''
+})
+
+const passwordError = computed(() => {
+  const v = password.value
+  if (!v) return ''
+  if (mode.value === 'register' && v.length < 6) return '密码至少 6 个字符'
+  return ''
+})
+
+const canSubmit = computed(() => {
+  if (authStore.loading) return false
+  if (!username.value.trim() || !password.value) return false
+  if (usernameError.value || passwordError.value) return false
+  return true
+})
+
 async function submit() {
-  if (!username.value || !password.value) {
-    errorMsg.value = '请输入用户名和密码'
+  // Trim before sending so leading/trailing spaces don't silently fail auth.
+  username.value = username.value.trim()
+  if (!USERNAME_RE.test(username.value)) {
+    errorMsg.value = '用户名格式不正确'
+    return
+  }
+  if (mode.value === 'register' && password.value.length < 6) {
+    errorMsg.value = '密码至少 6 个字符'
     return
   }
   errorMsg.value = ''
@@ -21,7 +54,9 @@ async function submit() {
     ? await authStore.login(username.value, password.value)
     : await authStore.register(username.value, password.value)
   if (ok) {
-    router.push('/memos')
+    // Return to the page the user was trying to access before 401, if any.
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+    router.push(redirect || '/memos')
   } else {
     errorMsg.value = authStore.error || '操作失败'
   }
@@ -55,9 +90,13 @@ function toggleMode() {
             v-model="username"
             type="text"
             class="field-input"
+            :class="{ invalid: usernameError }"
             placeholder="3-100 chars, a-z 0-9 _ -"
             autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
           />
+          <p v-if="usernameError" class="field-error">{{ usernameError }}</p>
         </div>
 
         <div class="field">
@@ -66,14 +105,16 @@ function toggleMode() {
             v-model="password"
             type="password"
             class="field-input"
+            :class="{ invalid: passwordError }"
             :placeholder="mode === 'register' ? 'min 6 chars' : 'password'"
-            autocomplete="current-password"
+            :autocomplete="mode === 'register' ? 'new-password' : 'current-password'"
           />
+          <p v-if="passwordError" class="field-error">{{ passwordError }}</p>
         </div>
 
         <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
 
-        <button type="submit" class="submit-btn" :disabled="authStore.loading">
+        <button type="submit" class="submit-btn" :disabled="!canSubmit">
           {{ authStore.loading ? 'PROCESSING...' : (mode === 'login' ? 'LOGIN' : 'REGISTER') }}
         </button>
       </form>
@@ -151,7 +192,7 @@ function toggleMode() {
   color: var(--text-muted);
   letter-spacing: 2px;
   margin-top: 8px;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .auth-form {
@@ -170,7 +211,7 @@ function toggleMode() {
   font-size: 10px;
   letter-spacing: 2px;
   color: var(--text-secondary);
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .field-input {
@@ -179,7 +220,7 @@ function toggleMode() {
   color: var(--text-primary);
   padding: 10px 12px;
   font-size: 14px;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -193,11 +234,27 @@ function toggleMode() {
   color: var(--text-ghost);
 }
 
+/* P2-46: inline validation state */
+.field-input.invalid {
+  border-color: var(--error);
+}
+
+.field-input.invalid:focus {
+  box-shadow: 0 0 0 2px rgba(255, 71, 87, 0.2);
+}
+
+.field-error {
+  color: var(--error);
+  font-size: 11px;
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
 .error-msg {
-  color: var(--neon-magenta);
+  color: var(--error);
   font-size: 12px;
   margin: 0;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .submit-btn {
@@ -211,7 +268,7 @@ function toggleMode() {
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .submit-btn:hover:not(:disabled) {
@@ -230,7 +287,7 @@ function toggleMode() {
   text-align: center;
   font-size: 12px;
   color: var(--text-secondary);
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .toggle-btn {
@@ -241,7 +298,7 @@ function toggleMode() {
   margin-left: 6px;
   text-decoration: underline;
   font-size: 12px;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .toggle-btn:hover {

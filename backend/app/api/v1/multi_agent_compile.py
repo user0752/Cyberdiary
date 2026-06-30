@@ -359,9 +359,11 @@ async def _run_ma_graph(
         )
     except Exception as ping_err:
         logger.error("[MA-Compile] Job %s: model connectivity FAILED: %s", job_id, ping_err)
+        # Sanitize — provider exceptions may leak endpoint/api-key fragments.
+        from app.utils.sanitize import sanitize_error_message
         await safe_progress_update(
             job_id, status="failed",
-            message=f"Model unreachable: {ping_err}",
+            message=f"Model unreachable: {sanitize_error_message(str(ping_err))}",
         )
         tracer_registry.pop(job_id)
         return None

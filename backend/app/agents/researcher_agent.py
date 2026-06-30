@@ -5,7 +5,7 @@ import json
 import logging
 
 from app.services import llm_service
-from app.utils.prompts import load_prompt
+from app.utils.prompts import load_prompt, safe_substitute, strip_json_fence
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,8 @@ class ResearcherPool:
     async def run_single(self, state, focus):
         async with self.semaphore:
             prompt_template = load_prompt("researcher.md")
-            prompt = prompt_template.format(
+            prompt = safe_substitute(
+                prompt_template,
                 focus=focus["label"],
                 focus_desc=focus["prompt_extra"],
                 memos_content="\n\n---\n\n".join(state["memos_content"]),
@@ -62,14 +63,13 @@ class ResearcherPool:
                 )
             response = await llm_service.chat_completion(
                 state["_model_config"],
-                messages=[{"role": "system", "content": prompt}],
+                # "user" role — see writer_agent.py for rationale.
+                messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
-                timeout=30.0,
+                timeout=60.0,
             )
             try:
-                raw = response.choices[0].message.content.strip()
-                if raw.startswith("```"):
-                    raw = raw.split("\n", 1)[1].rsplit("\n```", 1)[0]
+                raw = strip_json_fence(response.choices[0].message.content)
                 result = json.loads(raw)
             except (json.JSONDecodeError, KeyError, AttributeError):
                 logger.error("Researcher(%s) JSON parse failed", focus["name"])

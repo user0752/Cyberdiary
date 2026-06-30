@@ -1,9 +1,11 @@
 """CyberNote FastAPI application entry point."""
 
 import asyncio
+import contextvars
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,12 +18,42 @@ from app.core.database import init_db
 # Configure root logger once at application level.
 # All other modules should only use logging.getLogger(__name__) — do NOT
 # call logging.getLogger().setLevel() or logging.basicConfig() elsewhere.
+# P2-3: structured-ish format with request_id context var so every log line
+# for a given request can be correlated end-to-end (frontend echoes the same
+# id back via the X-Request-Id response header).
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    format='%(asctime)s [%(levelname)s] [req=%(request_id)s] %(name)s: %(message)s',
 )
 
 logger = logging.getLogger(__name__)
+
+
+# P2-3: context-bound request id. Set by the middleware below; read by the
+# logging filter so each log line carries the trace id without callers
+# having to thread it through every function.
+_request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar('request_id', default='-')
+
+
+class _RequestIdFilter(logging.Filter):
+    """Inject the current request_id into every LogRecord."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = _request_id_var.get()
+        return True
+
+
+# Attach the filter to the root HANDLER(s), NOT the root logger.
+# Filters on a logger are only applied when that logger is the ORIGINATOR
+# of the log call. When child loggers (litellm, app.core.database, etc.)
+# emit records that propagate up to root, the root logger's filter is NOT
+# re-applied — only the originating logger's filter runs. That caused
+# KeyError: 'request_id' on every line logged by a child logger, because
+# the formatter expected the field but the filter never injected it.
+# Handler filters, by contrast, run on every record the handler processes,
+# regardless of which logger originated it.
+for _h in logging.getLogger().handlers:
+    _h.addFilter(_RequestIdFilter())
 
 # Reference to managed background compile tasks (populated during lifespan)
 _background_tasks: set[asyncio.Task] = set()
@@ -72,6 +104,23 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+
+# P2-3: request-id middleware. Generates (or trusts an inbound X-Request-Id)
+# short id per request, binds it to the logging context var, and echoes it
+# back on the response so the frontend / operator can correlate logs to a
+# specific request without grepping by timestamp + path.
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    inbound = request.headers.get("x-request-id")
+    rid = inbound if inbound and len(inbound) <= 64 else uuid.uuid4().hex[:12]
+    token = _request_id_var.set(rid)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = rid
+        return response
+    finally:
+        _request_id_var.reset(token)
 
 # CORS
 # allow_credentials=True is incompatible with a wildcard origin (browsers
@@ -128,12 +177,14 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Catch-all for unexpected errors. Logs full traceback with trace_id, returns generic message."""
-    trace_id = uuid.uuid4().hex[:12]
-    logger.exception("Unhandled exception on %s %s [trace_id=%s]", request.method, request.url.path, trace_id)
+    """Catch-all for unexpected errors. The request_id (already in the log
+    filter context) is echoed in the response so the user can paste it into
+    a bug report and we can grep it out of the logs."""
+    rid = _request_id_var.get()
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"code": -1, "message": "Internal server error", "data": {"trace_id": trace_id}},
+        content={"code": -1, "message": "Internal server error", "data": {"trace_id": rid if rid != "-" else None}},
     )
 
 

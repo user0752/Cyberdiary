@@ -26,10 +26,30 @@ def _parse_llm_json(raw: str) -> list[dict]:
     try:
         result = json.loads(text)
     except json.JSONDecodeError:
-        # Try to find JSON array in the text
+        # Try to find JSON array in the text. The regex may extract a
+        # substring that is STILL invalid JSON (e.g. trailing prose inside
+        # the brackets, single-quoted keys). Wrap the second parse so we
+        # surface a friendly error instead of leaking the raw json error
+        # ("Expecting property name enclosed in double quotes: ...") to the
+        # API response.
         match = re.search(r"\[.*\]", text, re.DOTALL)
         if match:
-            result = json.loads(match.group())
+            try:
+                result = json.loads(match.group())
+            except json.JSONDecodeError:
+                # Distinguish "truncated output" (no closing ]) from
+                # "malformed but complete" so the user gets actionable
+                # guidance: truncation → reduce count / raise max_tokens;
+                # malformed → retry or switch model.
+                if not text.rstrip().endswith("]"):
+                    raise ValueError(
+                        "LLM 输出被截断（未收到完整的 JSON 数组）。"
+                        "请减少题目数量后重试，或联系管理员调大 max_tokens。"
+                        f" 输出末尾 200 字符: ...{text[-200:]}"
+                    )
+                raise ValueError(
+                    f"LLM 返回了格式错误的 JSON 数组（前 200 字符）: {text[:200]}"
+                )
         else:
             raise ValueError(f"Failed to parse LLM output as JSON array: {text[:200]}")
 
@@ -75,13 +95,15 @@ async def generate_questions(
         wiki_page_id = page.id
 
     # 3. Build prompt
+    from app.utils.prompts import safe_substitute
     prompt_template = (PROMPTS_DIR / "game_question.md").read_text(encoding="utf-8")
-    user_prompt = prompt_template.format(
+    user_prompt = safe_substitute(
+        prompt_template,
         title=title,
         wiki_type=wiki_type,
         content=content,
         difficulty=difficulty,
-        count=count,
+        count=str(count),
     )
 
     messages = [
@@ -90,7 +112,13 @@ async def generate_questions(
     ]
 
     # 4. Call LLM
-    response = await llm_service.chat_completion(model_config, messages, stream=False)
+    # max_tokens sized for up to ~10 questions: each question is roughly
+    # 150-300 tokens (question text + 4 options + explanation). 4096 leaves
+    # headroom and prevents truncation mid-array, which would produce
+    # unparseable JSON.
+    response = await llm_service.chat_completion(
+        model_config, messages, stream=False, max_tokens=4096
+    )
     raw_content = response.choices[0].message.content if response.choices else ""
 
     # 5. Parse JSON

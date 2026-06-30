@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import * as gameApi from '../api/game'
 import type { GameQuestion, GameSession, AnswerResult, SessionSummary } from '../api/game'
+import { useToastStore } from './toast'
+import { ApiError } from '../api/client'
 
 export const useGameStore = defineStore('game', () => {
   // State
@@ -32,6 +34,7 @@ export const useGameStore = defineStore('game', () => {
     difficulty?: string
     model_id: string
   }) {
+    const toast = useToastStore()
     generating.value = true
     try {
       const data = await gameApi.generateQuestions(params)
@@ -41,6 +44,13 @@ export const useGameStore = defineStore('game', () => {
       answers.value = []
       showResult.value = false
       sessionSummary.value = null
+    } catch (e) {
+      // Surface API errors as a user-facing toast instead of letting them
+      // bubble to the global Vue errorHandler (which would otherwise show a
+      // misleading "界面渲染错误" toast — the UI didn't actually fail to
+      // render; the LLM just returned malformed JSON).
+      const msg = e instanceof ApiError ? e.message : '生成题目失败'
+      toast.error('生成题目失败: ' + msg)
     } finally {
       generating.value = false
     }
@@ -48,6 +58,7 @@ export const useGameStore = defineStore('game', () => {
 
   async function submitCurrentAnswer(userAnswer: string) {
     if (!currentSession.value || !currentQuestion.value || showResult.value) return
+    const toast = useToastStore()
     loading.value = true
     try {
       const result = await gameApi.submitAnswer(
@@ -57,6 +68,9 @@ export const useGameStore = defineStore('game', () => {
       )
       answers.value.push(result)
       showResult.value = true
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : '提交答案失败'
+      toast.error('提交答案失败: ' + msg)
     } finally {
       loading.value = false
     }

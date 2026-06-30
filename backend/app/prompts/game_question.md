@@ -12,12 +12,12 @@
 
 ```json
 [
-  {{
+  {
     "question_text": "题目内容",
     "options": ["选项A的内容", "选项B的内容", "选项C的内容", "选项D的内容"],
     "correct_answer": "B",
     "explanation": "解释为什么B是正确答案，以及其他选项为什么错误"
-  }}
+  }
 ]
 ```
 

@@ -658,7 +658,7 @@ const accuracyPercent = computed(() => {
 }
 
 .option-btn.wrong {
-  border-color: #ff4757;
+  border-color: var(--error);
   background: rgba(255, 71, 87, 0.1);
 }
 
@@ -680,7 +680,7 @@ const accuracyPercent = computed(() => {
 }
 
 .option-btn.wrong .opt-label {
-  color: #ff4757;
+  color: var(--error);
 }
 
 .opt-text {
@@ -709,7 +709,7 @@ const accuracyPercent = computed(() => {
 }
 
 .feedback-status.wrong {
-  color: #ff4757;
+  color: var(--error);
   text-shadow: 0 0 12px rgba(255, 71, 87, 0.3);
 }
 
@@ -821,7 +821,7 @@ const accuracyPercent = computed(() => {
 }
 
 .detail-row.wrong {
-  color: #ff4757;
+  color: var(--error);
 }
 
 .detail-idx {
