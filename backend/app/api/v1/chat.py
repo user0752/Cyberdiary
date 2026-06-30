@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
-from app.schemas.chat import ChatStreamRequest, ConversationCreate, ConversationResponse, MessageResponse
+from app.schemas.chat import ChatStreamRequest, ConversationCreate, ConversationResponse, ConversationUpdate, MessageResponse
 from app.schemas.memo import ApiResponse
 from app.services import chat_service
 
@@ -26,6 +26,18 @@ async def list_conversations(db: AsyncSession = Depends(get_db)):
 @router.post("/conversations", response_model=ApiResponse[ConversationResponse])
 async def create_conversation(data: ConversationCreate, db: AsyncSession = Depends(get_db)):
     conv = await chat_service.create_conversation(db, data.title, data.model_id)
+    return ApiResponse(data=ConversationResponse.model_validate(conv))
+
+
+@router.patch("/conversations/{conv_id}", response_model=ApiResponse[ConversationResponse])
+async def update_conversation(
+    conv_id: str,
+    data: ConversationUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    conv = await chat_service.rename_conversation(db, conv_id, data.title)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     return ApiResponse(data=ConversationResponse.model_validate(conv))
 
 

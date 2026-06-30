@@ -48,6 +48,8 @@
         <button
           class="mode-btn"
           :class="{ active: viewMode === '3d' }"
+          :disabled="!webglAvailable"
+          :title="webglAvailable ? '3D 沉浸视图' : 'WebGL 不可用'"
           @click="switchMode('3d')"
         >
           <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2L2 7l8 5 8-5-8-5zM2 13l8 5 8-5M2 7v6l8 5 8-5V7" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
@@ -58,8 +60,10 @@
       <!-- 2D Graph -->
       <ForceGraph2D v-show="viewMode === '2d'" ref="graph2dRef" />
 
-      <!-- 3D Graph -->
-      <ForceGraph3D v-show="viewMode === '3d'" ref="graph3dRef" />
+      <!-- 3D Graph (P2-37: v-if so WebGL context is created on demand and
+           fully disposed when switching back to 2D. v-show kept both graphs
+           mounted, so the 3D RAF loop ran continuously even while hidden.) -->
+      <ForceGraph3D v-if="viewMode === '3d'" ref="graph3dRef" />
 
       <!-- Legend (2D only) -->
       <GraphLegend v-show="viewMode === '2d'" />
@@ -113,6 +117,19 @@ const currentTheme = computed(() => {
 })
 const viewMode = ref<'2d' | '3d'>('2d')
 
+// P2-37: check WebGL availability once at parent level so we can gate the
+// 3D button without needing ForceGraph3D to be mounted (it now uses v-if).
+const webglAvailable = ref(true)
+function checkWebGL() {
+  try {
+    const testCanvas = document.createElement('canvas')
+    const gl = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl')
+    webglAvailable.value = !!gl
+  } catch {
+    webglAvailable.value = false
+  }
+}
+
 let resizeObs: ResizeObserver | null = null
 
 async function loadGraph() {
@@ -123,7 +140,7 @@ async function loadGraph() {
 }
 
 function switchMode(mode: '2d' | '3d') {
-  if (mode === '3d' && graph3dRef.value && !graph3dRef.value.webglAvailable) {
+  if (mode === '3d' && !webglAvailable.value) {
     // WebGL not available, stay in 2D
     return
   }
@@ -158,6 +175,7 @@ function onPanTo(worldX: number, worldY: number) {
 }
 
 onMounted(() => {
+  checkWebGL()
   loadGraph()
 
   if (containerRef.value) {
@@ -226,6 +244,11 @@ onUnmounted(() => {
 
 .mode-btn:hover {
   opacity: 0.8;
+}
+
+.mode-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .mode-btn.active {

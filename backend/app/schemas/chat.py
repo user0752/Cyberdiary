@@ -10,6 +10,10 @@ class ConversationCreate(BaseModel):
     model_id: str = Field(..., min_length=1)
 
 
+class ConversationUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+
+
 class ConversationResponse(BaseModel):
     id: str
     title: str

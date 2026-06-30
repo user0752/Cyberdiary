@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import client from '../api/client'
 
-export type Theme = 'cyberpunk' | 'dark' | 'light' | 'synthwave'
+export type Theme = 'cyberpunk' | 'dark' | 'light' | 'synthwave' | 'auto'
 
 export interface ModelConfig {
   id: string
@@ -14,19 +14,40 @@ export interface ModelConfig {
   enabled: boolean
 }
 
+const EXPLICIT_THEMES: Exclude<Theme, 'auto'>[] = ['cyberpunk', 'dark', 'light', 'synthwave']
+
 export const useSettingsStore = defineStore('settings', () => {
   const models = ref<ModelConfig[]>([])
   const defaultChatModel = ref('')
   const defaultCompileModel = ref('')
   const theme = ref<Theme>('cyberpunk')
 
+  // P1-19: track the system color-scheme so 'auto' theme can react to OS changes.
+  let _mediaQuery: MediaQueryList | null = null
+  let _mediaHandler: ((e: MediaQueryListEvent) => void) | null = null
+
+  // Resolve 'auto' to an explicit theme based on the OS preference. The
+  // cyberpunk/synthwave themes are dark by design, so they map to 'dark'.
+  function resolveAuto(): Exclude<Theme, 'auto'> {
+    if (typeof window === 'undefined' || !window.matchMedia) return 'dark'
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  }
+
   // Load theme from localStorage on initialization
   function loadTheme() {
     const saved = localStorage.getItem('cybernote-theme')
-    if (saved && ['cyberpunk', 'dark', 'light', 'synthwave'].includes(saved)) {
+    if (saved && ([...EXPLICIT_THEMES, 'auto'] as string[]).includes(saved)) {
       theme.value = saved as Theme
     }
     applyTheme(theme.value)
+    // P1-19: subscribe to system color-scheme changes when in auto mode.
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      _mediaQuery = window.matchMedia('(prefers-color-scheme: light)')
+      _mediaHandler = () => {
+        if (theme.value === 'auto') applyTheme('auto')
+      }
+      _mediaQuery.addEventListener('change', _mediaHandler)
+    }
   }
 
   // Save theme to localStorage and apply
@@ -36,10 +57,11 @@ export const useSettingsStore = defineStore('settings', () => {
     applyTheme(newTheme)
   }
 
-  // Apply theme to DOM
+  // Apply theme to DOM. 'auto' resolves via prefers-color-scheme.
   function applyTheme(themeName: Theme) {
+    const resolved = themeName === 'auto' ? resolveAuto() : themeName
     const root = document.documentElement
-    root.setAttribute('data-theme', themeName)
+    root.setAttribute('data-theme', resolved)
   }
 
   async function fetchModels() {
@@ -93,15 +115,15 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  return { 
-    models, 
-    defaultChatModel, 
-    defaultCompileModel, 
-    theme, 
+  return {
+    models,
+    defaultChatModel,
+    defaultCompileModel,
+    theme,
     setTheme,
-    fetchModels, 
-    fetchDefaults, 
-    saveDefaults, 
-    init 
+    fetchModels,
+    fetchDefaults,
+    saveDefaults,
+    init
   }
 })

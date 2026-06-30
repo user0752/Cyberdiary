@@ -95,8 +95,27 @@ export function useThreeGraph(options: ThreeGraphOptions) {
 
     createStarfield(sc)
 
+    // P2-38: pause the RAF loop when the tab is hidden so the 3D graph
+    // doesn't burn CPU/GPU cycles in the background. Resumes on focus.
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
     isAnimating = true
     animate()
+  }
+
+  // P2-38: visibilitychange handler — stops/resumes the RAF loop.
+  function onVisibilityChange() {
+    if (document.hidden) {
+      isAnimating = false
+      cancelAnimationFrame(animFrameId)
+    } else if (scene.value && renderer.value) {
+      // Only resume if not already disposed.
+      if (!isAnimating) {
+        isAnimating = true
+        scheduleRender()
+        animate()
+      }
+    }
   }
 
   function createStarfield(scene: THREE.Scene) {
@@ -117,10 +136,17 @@ export function useThreeGraph(options: ThreeGraphOptions) {
     scene.add(starfield)
   }
 
-  /** 3D force-directed layout — operates on pos3dMap, NOT on shared GraphNode.x/y/z. */
-  function layoutForce3D(nodes: GraphNode[], edges: GraphEdge[], iterations: number = 120) {
+  /** 3D force-directed layout — operates on pos3dMap, NOT on shared GraphNode.x/y/z.
+   *  P1-22: iteration count is capped by node count so large graphs don't
+   *  blow up the O(n^2) repulsion loop on a 4c/4G server. 60 iterations is
+   *  enough for visual convergence; force layouts settle quickly. */
+  function layoutForce3D(nodes: GraphNode[], edges: GraphEdge[], iterations?: number) {
     const n = nodes.length
     if (n === 0) return
+    // Adaptive: small graphs get the full 60, large graphs taper down to 30.
+    if (iterations == null) {
+      iterations = n > 120 ? 30 : n > 60 ? 40 : 60
+    }
 
     // Initialize positions: Fibonacci sphere, stored in pos3dMap
     const radius = Math.max(80, n * 3)
@@ -512,8 +538,19 @@ export function useThreeGraph(options: ThreeGraphOptions) {
   function dispose() {
     isAnimating = false
     cancelAnimationFrame(animFrameId)
+    // P2-38: remove the visibilitychange listener so it doesn't fire after
+    // dispose and try to resume a torn-down RAF loop.
+    document.removeEventListener('visibilitychange', onVisibilityChange)
     clearGraph()
     pos3dMap.clear()
+    // P2-39: dispose the starfield geometry + material — previously leaked.
+    if (starfield) {
+      const sc = scene.value
+      if (sc) sc.remove(starfield)
+      starfield.geometry.dispose()
+      ;(starfield.material as THREE.Material).dispose()
+      starfield = null
+    }
     if (sharedSphereGeo) { sharedSphereGeo.dispose(); sharedSphereGeo = null }
     if (sharedNodeMaterial) { sharedNodeMaterial.dispose(); sharedNodeMaterial = null }
     if (sharedEdgeMaterial) { sharedEdgeMaterial.dispose(); sharedEdgeMaterial = null }

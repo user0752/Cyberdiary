@@ -1,12 +1,15 @@
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import time
 import aiosqlite
 from collections import OrderedDict
 
 from app.core.redis import get_redis
+
+logger = logging.getLogger(__name__)
 
 
 class LLMCache:
@@ -61,12 +64,19 @@ class LLMCache:
         redis = get_redis()
         if redis is not None:
             key = self._make_key(prompt, model, kw)
-            v = await redis.get(f"llm:cache:{key}")
-            if v is not None:
-                self.stats["disk"] += 1
-                return v
-            self.stats["miss"] += 1
-            return None
+            # P2-7: if Redis is configured but unreachable (network blip,
+            # redis restarting, etc.), degrade to the local SQLite/memory
+            # tier instead of raising. A cache miss is always safe; a hard
+            # failure here would propagate up and abort the LLM call.
+            try:
+                v = await redis.get(f"llm:cache:{key}")
+                if v is not None:
+                    self.stats["disk"] += 1
+                    return v
+                self.stats["miss"] += 1
+                return None
+            except Exception:
+                logger.warning("LLMCache Redis get failed, degrading to local cache", exc_info=True)
         async with self._lock:
             await self._ensure_db()
             key = self._make_key(prompt, model, kw)
@@ -92,8 +102,14 @@ class LLMCache:
         redis = get_redis()
         if redis is not None:
             key = self._make_key(prompt, model, kw)
-            await redis.set(f"llm:cache:{key}", response, ex=self.ttl)
-            return
+            # P2-7: best-effort Redis write — a failure here must not break
+            # the LLM response that we just paid for. Log and fall through
+            # to the local tier so the next call still hits a warm cache.
+            try:
+                await redis.set(f"llm:cache:{key}", response, ex=self.ttl)
+                return
+            except Exception:
+                logger.warning("LLMCache Redis set failed, degrading to local cache", exc_info=True)
         async with self._lock:
             await self._ensure_db()
             key = self._make_key(prompt, model, kw)

@@ -16,7 +16,7 @@
   --text-primary: #e8e8f0;
   --text-secondary: #9898b0;
   --text-muted: #5a5a72;
-  --text-ghost: #3a3a50;
+  --text-ghost: #4a4a62;
 
   --neon-cyan: #00f5ff;
   --neon-cyan-dim: rgba(0, 245, 255, 0.6);
@@ -39,6 +39,9 @@
   --accent-dim: var(--neon-cyan-dim);
   --accent-glow: var(--neon-cyan-glow);
   --accent-ghost: var(--neon-cyan-ghost);
+  --accent-muted: var(--neon-cyan-ghost);
+
+  --error: #ff4757;
 
   --border: rgba(0, 245, 255, 0.12);
   --border-bright: rgba(0, 245, 255, 0.3);
@@ -88,6 +91,9 @@
   --accent-dim: var(--neon-cyan-dim);
   --accent-glow: var(--neon-cyan-glow);
   --accent-ghost: var(--neon-cyan-ghost);
+  --accent-muted: var(--neon-cyan-ghost);
+
+  --error: #ff5555;
 
   --border: rgba(78, 205, 196, 0.10);
   --border-bright: rgba(78, 205, 196, 0.25);
@@ -137,6 +143,9 @@
   --accent-dim: var(--neon-cyan-dim);
   --accent-glow: var(--neon-cyan-glow);
   --accent-ghost: var(--neon-cyan-ghost);
+  --accent-muted: var(--neon-cyan-ghost);
+
+  --error: #d02030;
 
   --border: rgba(0, 160, 176, 0.15);
   --border-bright: rgba(0, 160, 176, 0.35);
@@ -173,6 +182,7 @@
   --neon-magenta: #ff71ce;
   --neon-magenta-dim: rgba(255, 113, 206, 0.6);
   --neon-magenta-glow: rgba(255, 113, 206, 0.15);
+  --neon-magenta-ghost: rgba(255, 113, 206, 0.08);
 
   --neon-green: #b967ff;
   --neon-green-dim: rgba(185, 103, 255, 0.6);
@@ -186,6 +196,9 @@
   --accent-dim: var(--neon-magenta-dim);
   --accent-glow: var(--neon-magenta-glow);
   --accent-ghost: var(--neon-magenta-ghost);
+  --accent-muted: var(--neon-magenta-ghost);
+
+  --error: #ff5277;
 
   --border: rgba(255, 113, 206, 0.12);
   --border-bright: rgba(255, 113, 206, 0.3);

@@ -52,6 +52,17 @@ async def delete_conversation(db: AsyncSession, conv_id: str) -> bool:
     return True
 
 
+async def rename_conversation(db: AsyncSession, conv_id: str, title: str) -> Conversation | None:
+    conv = await get_conversation(db, conv_id)
+    if not conv:
+        return None
+    conv.title = title
+    conv.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.refresh(conv)
+    return conv
+
+
 async def get_messages(db: AsyncSession, conv_id: str, limit: int = 50) -> list[Message]:
     result = await db.execute(
         select(Message)
@@ -102,11 +113,18 @@ async def build_chat_context(db: AsyncSession, conv_id: str, user_message: str) 
 
     # Read chat system prompt template
     from pathlib import Path
+    from app.utils.prompts import safe_substitute
     prompt_path = Path(__file__).parent.parent / "prompts" / "chat_system.md"
     model_display_name = model_config.get("display_name") or model_config.get("model_name", "unknown")
     try:
-        system_prompt = prompt_path.read_text(encoding="utf-8").format(
-            wiki_context=wiki_context,
+        template = prompt_path.read_text(encoding="utf-8")
+        # Use safe_substitute so curly braces in wiki_context (e.g. JSON
+        # snippets, code) cannot raise KeyError and crash the chat. Wrap
+        # wiki content in a fence to mark it as data, mitigating prompt
+        # injection from user-authored wiki pages.
+        system_prompt = safe_substitute(
+            template,
+            wiki_context=f"<user_content>\n{wiki_context}\n</user_content>",
             model_name=model_display_name,
         )
     except Exception:
@@ -213,6 +231,8 @@ async def chat_stream(
         yield "data: [DONE]\n\n"
 
     except Exception as e:
-        error_msg = str(e)
+        # Sanitize — LLM provider exceptions may contain endpoint/api-key fragments.
+        from app.utils.sanitize import sanitize_error_message
+        error_msg = sanitize_error_message(str(e))
         yield f"data: {json.dumps({'error': error_msg, 'conv_id': conv_id})}\n\n"
         yield "data: [DONE]\n\n"

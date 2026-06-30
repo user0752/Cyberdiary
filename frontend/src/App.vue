@@ -2,7 +2,8 @@
 import { useRoute, useRouter } from 'vue-router'
 import { useSettingsStore } from './stores/settings'
 import { useAuthStore } from './stores/auth'
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, ref, watch } from 'vue'
+import ToastContainer from './components/ToastContainer.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,6 +22,24 @@ const navItems = [
 
 const showAuth = computed(() => authStore.isAuthenticated)
 
+// P1-27: mobile sidebar drawer state. Closed by default on small screens;
+// opens via the hamburger button, closes on navigation or backdrop click.
+const sidebarOpen = ref(false)
+
+function toggleSidebar() {
+  sidebarOpen.value = !sidebarOpen.value
+}
+
+function closeSidebar() {
+  sidebarOpen.value = false
+}
+
+// Auto-close the drawer whenever the route changes so the user sees the page
+// they navigated to without manually dismissing the sidebar first.
+watch(() => route.path, () => {
+  if (sidebarOpen.value) sidebarOpen.value = false
+})
+
 function logout() {
   authStore.logout()
   router.push('/login')
@@ -33,8 +52,34 @@ onMounted(() => {
 
 <template>
   <div class="app-layout scanlines noise">
+    <!-- P1-27: hamburger toggle, mobile-only -->
+    <button
+      class="sidebar-toggle"
+      type="button"
+      :aria-label="sidebarOpen ? '关闭侧边栏' : '打开侧边栏'"
+      :aria-expanded="sidebarOpen"
+      @click="toggleSidebar"
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path v-if="!sidebarOpen" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/>
+        <path v-else d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <!-- P1-27: backdrop overlay, mobile-only, dismisses sidebar on click -->
+    <div
+      v-if="sidebarOpen"
+      class="sidebar-backdrop"
+      aria-hidden="true"
+      @click="closeSidebar"
+    ></div>
+
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside
+      class="sidebar"
+      :class="{ open: sidebarOpen }"
+      aria-label="主导航"
+    >
       <div class="sidebar-top">
         <div class="brand-block">
           <div class="brand-icon">
@@ -49,13 +94,13 @@ onMounted(() => {
             <span class="brand-sub">NOTE</span>
           </div>
         </div>
-        <div class="status-bar">
-          <span class="status-dot"></span>
+        <div class="status-bar" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
           <span class="status-text">SYSTEM ONLINE</span>
         </div>
       </div>
 
-      <nav class="sidebar-nav">
+      <nav class="sidebar-nav" aria-label="页面导航">
         <div class="nav-section-label">// NAVIGATION</div>
         <RouterLink
           v-for="item in navItems"
@@ -63,20 +108,27 @@ onMounted(() => {
           :to="item.path"
           class="nav-item"
           :class="{ active: route.path.startsWith(item.path) }"
+          :aria-current="route.path.startsWith(item.path) ? 'page' : undefined"
+          :aria-label="`${item.label} — ${item.sub}`"
         >
-          <span class="nav-index">{{ item.icon }}</span>
+          <span class="nav-index" aria-hidden="true">{{ item.icon }}</span>
           <div class="nav-content">
             <span class="nav-label">{{ item.label }}</span>
             <span class="nav-sub">{{ item.sub }}</span>
           </div>
-          <div class="nav-indicator"></div>
+          <div class="nav-indicator" aria-hidden="true"></div>
         </RouterLink>
       </nav>
 
       <div class="sidebar-footer">
         <div v-if="showAuth" class="user-block">
           <span class="user-name">{{ authStore.username }}</span>
-          <button class="logout-btn" @click="logout">LOGOUT</button>
+          <button
+            class="logout-btn"
+            type="button"
+            aria-label="退出登录"
+            @click="logout"
+          >LOGOUT</button>
         </div>
         <div class="footer-line"></div>
         <div class="footer-info">
@@ -88,8 +140,18 @@ onMounted(() => {
 
     <!-- Main Content -->
     <main class="main-content cyber-grid">
-      <RouterView />
+      <!-- P2-43: route transition. mode="out-in" unmounts the old view before
+           mounting the new one, so a slow-leaving view doesn't briefly share
+           the screen with the incoming one. Fade is the least disruptive. -->
+      <RouterView v-slot="{ Component }">
+        <Transition name="route-fade" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </RouterView>
     </main>
+
+    <!-- P1-12: global non-blocking toast notifications -->
+    <ToastContainer />
   </div>
 </template>
 
@@ -385,5 +447,84 @@ onMounted(() => {
   overflow-x: hidden;
   background: var(--bg-primary);
   position: relative;
+}
+
+/* P1-27: mobile sidebar drawer. Hidden on desktop, slides in on mobile. */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  width: 40px;
+  height: 40px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--glow-sm);
+}
+
+.sidebar-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar-toggle {
+    display: flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    transition: transform var(--transition-smooth);
+    z-index: 90;
+    box-shadow: var(--glow-md);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 80;
+    animation: fadeIn var(--transition-smooth);
+  }
+
+  .main-content {
+    padding-top: 0;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* P2-43: route transition — a short fade. Kept under 200ms so navigation
+   still feels snappy. */
+.route-fade-enter-active,
+.route-fade-leave-active {
+  transition: opacity 150ms ease;
+}
+
+.route-fade-enter-from,
+.route-fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, nextTick } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import ChatWindow from '../components/ChatWindow.vue'
@@ -43,6 +43,56 @@ function formatDate(dateStr: string) {
   }
   return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
+
+// P1-13: confirm before deleting a conversation (deletes are destructive).
+function confirmDelete(id: string, title: string) {
+  if (window.confirm(`确认删除会话 "${title}" ？此操作不可撤销。`)) {
+    store.deleteConv(id)
+  }
+}
+
+// P1-18: inline rename — double-click title to edit, Enter to save, Esc to cancel.
+const editingId = ref<string | null>(null)
+const editingTitle = ref('')
+const editInputRef = ref<HTMLInputElement | null>(null)
+
+async function startRename(convId: string, currentTitle: string) {
+  editingId.value = convId
+  editingTitle.value = currentTitle
+  await nextTick()
+  editInputRef.value?.focus()
+  editInputRef.value?.select()
+}
+
+function cancelRename() {
+  editingId.value = null
+  editingTitle.value = ''
+}
+
+async function commitRename(convId: string) {
+  const title = editingTitle.value.trim()
+  if (!title) {
+    cancelRename()
+    return
+  }
+  try {
+    await store.renameConv(convId, title)
+  } catch {
+    /* keep current list on error; backend returns 404/422 */
+  }
+  editingId.value = null
+  editingTitle.value = ''
+}
+
+function onRenameKeydown(e: KeyboardEvent, convId: string) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    commitRename(convId)
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelRename()
+  }
+}
 </script>
 
 <template>
@@ -64,20 +114,50 @@ function formatDate(dateStr: string) {
           v-for="conv in store.conversations"
           :key="conv.id"
           class="conv-item"
-          :class="{ active: conv.id === store.currentConvId }"
-          @click="store.selectConversation(conv.id)"
+          :class="{ active: conv.id === store.currentConvId, editing: editingId === conv.id }"
+          @click="editingId === conv.id ? null : store.selectConversation(conv.id)"
         >
           <div class="conv-indicator"></div>
           <div class="conv-content">
-            <div class="conv-title">{{ conv.title }}</div>
+            <input
+              v-if="editingId === conv.id"
+              ref="editInputRef"
+              v-model="editingTitle"
+              class="conv-title-input"
+              type="text"
+              maxlength="200"
+              aria-label="重命名会话"
+              @click.stop
+              @keydown="onRenameKeydown($event, conv.id)"
+              @blur="commitRename(conv.id)"
+            />
+            <div
+              v-else
+              class="conv-title"
+              :title="conv.title"
+              @dblclick.stop="startRename(conv.id, conv.title)"
+            >{{ conv.title }}</div>
             <div class="conv-meta">
               <span>{{ formatDate(conv.updated_at) }}</span>
             </div>
           </div>
           <button
+            v-if="editingId !== conv.id"
+            class="conv-rename"
+            @click.stop="startRename(conv.id, conv.title)"
+            title="重命名"
+            aria-label="重命名会话"
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11l8.5-8.5z"/>
+            </svg>
+          </button>
+          <button
+            v-if="editingId !== conv.id"
             class="conv-delete"
-            @click.stop="store.deleteConv(conv.id)"
+            @click.stop="confirmDelete(conv.id, conv.title)"
             title="删除"
+            aria-label="删除会话"
           >
             <svg viewBox="0 0 16 16" fill="currentColor">
               <path d="M4 3v1h8V3H4zm-2 3v8h10V6H2zm3 2h2v6H5V8zm4 0h2v6H9V8z"/>
@@ -287,7 +367,53 @@ function formatDate(dateStr: string) {
 
 .conv-delete:hover {
   background: rgba(255, 71, 87, 0.1);
-  color: #ff4757;
+  color: var(--error);
+}
+
+/* P1-18: rename button + inline edit input */
+.conv-rename {
+  opacity: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.conv-rename svg {
+  width: 12px;
+  height: 12px;
+}
+
+.conv-item:hover .conv-rename {
+  opacity: 1;
+}
+
+.conv-rename:hover {
+  background: var(--accent-ghost);
+  color: var(--accent);
+}
+
+.conv-title-input {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  margin-bottom: 4px;
+  outline: none;
+  box-shadow: var(--glow-sm);
+}
+
+.conv-item.editing {
+  background: var(--accent-ghost);
 }
 
 .no-convs {

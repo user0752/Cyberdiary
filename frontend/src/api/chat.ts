@@ -31,6 +31,11 @@ export async function deleteConversation(convId: string): Promise<void> {
   await client.delete(`/chat/conversations/${convId}`)
 }
 
+export async function renameConversation(convId: string, title: string): Promise<Conversation> {
+  const res = await client.patch(`/chat/conversations/${convId}`, { title })
+  return res.data.data
+}
+
 export async function* chatStream(
   message: string,
   modelId: string,

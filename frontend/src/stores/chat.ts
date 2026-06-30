@@ -37,6 +37,13 @@ export const useChatStore = defineStore('chat', () => {
     await loadConversations()
   }
 
+  async function renameConv(convId: string, title: string) {
+    const updated = await chatApi.renameConversation(convId, title)
+    const idx = conversations.value.findIndex((c) => c.id === convId)
+    if (idx >= 0) conversations.value[idx] = updated
+    return updated
+  }
+
   /** Cancel the current streaming request */
   function stopStreaming() {
     if (_abortController) {
@@ -106,13 +113,28 @@ export const useChatStore = defineStore('chat', () => {
     streamContent.value = ''
     _abortController = null
 
+    // P2-32: reload messages from the server so the temp ids (used during
+    // streaming) are replaced with real database ids + canonical created_at
+    // timestamps. Without this, any subsequent action keyed on message id
+    // (e.g. delete, copy-link) would target a temp id that doesn't exist
+    // server-side. Skip when there's no conversation (e.g. stream errored
+    // before the backend created one).
+    if (currentConvId.value) {
+      try {
+        messages.value = await chatApi.fetchMessages(currentConvId.value)
+      } catch {
+        // Network blip after a successful stream — keep the temp messages
+        // rather than wiping the UI. The next page load will sync.
+      }
+    }
+
     // Reload conversations to update title
     await loadConversations()
   }
 
   return {
     conversations, currentConvId, messages, streaming, streamContent,
-    loadConversations, selectConversation, newConversation, deleteConv,
+    loadConversations, selectConversation, newConversation, deleteConv, renameConv,
     sendMessage, stopStreaming,
   }
 })
